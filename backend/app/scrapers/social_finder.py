@@ -1,125 +1,149 @@
 """
-Social media profile finder
-Searches for company profiles on Facebook, Instagram, LinkedIn
+Social media profile finder for Georgian companies
+Facebook-first approach (dominant platform in Georgia)
+No API keys required — uses direct URL checks
 """
 
 import httpx
-import os
+import re
 import logging
 from typing import Dict, Optional
+from urllib.parse import quote_plus
+from app.scrapers.web_checker import transliterate_georgian, normalize_company_name
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY", "")
-GOOGLE_CSE_CX = os.getenv("GOOGLE_CSE_CX", "")
 
-# Social media platforms to search
-SOCIAL_PLATFORMS = {
-    'facebook': {
-        'site': 'facebook.com',
-        'pattern': 'facebook.com'
-    },
-    'instagram': {
-        'site': 'instagram.com',
-        'pattern': 'instagram.com'
-    },
-    'linkedin': {
-        'site': 'linkedin.com/company',
-        'pattern': 'linkedin.com/company'
-    },
-    'twitter': {
-        'site': 'twitter.com',
-        'pattern': 'twitter.com'
-    },
-}
-
-
-async def find_social_profile(company_name: str, platform: str) -> Optional[str]:
+async def check_facebook_page(company_name: str, timeout: int = 8) -> Optional[str]:
     """
-    Find company profile on specific social platform
-    Uses Google Custom Search with site: operator
+    Try to find a Facebook page for a company.
+    Checks common Facebook URL patterns based on company name.
 
-    Returns: URL if found, None otherwise
+    Returns: Facebook URL if found, None otherwise
     """
-    if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX:
-        logger.warning("Google CSE credentials not configured")
+    name_bases = normalize_company_name(company_name)
+    if not name_bases:
         return None
 
-    if platform not in SOCIAL_PLATFORMS:
+    urls_to_try = []
+    for base in name_bases:
+        urls_to_try.extend([
+            f"https://www.facebook.com/{base}",
+            f"https://www.facebook.com/{base}ge",
+            f"https://www.facebook.com/{base}.ge",
+            f"https://www.facebook.com/{base}georgia",
+        ])
+
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        verify=False,
+    ) as client:
+        for url in urls_to_try[:6]:  # Limit checks
+            try:
+                r = await client.head(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                })
+                # Facebook returns 200 for existing pages, 404 for non-existent
+                if r.status_code == 200:
+                    # Check we didn't get redirected to login or error page
+                    final_url = str(r.url)
+                    if "/login" not in final_url and "/error" not in final_url:
+                        return url
+            except Exception:
+                continue
+
+    return None
+
+
+async def check_instagram_page(company_name: str, timeout: int = 8) -> Optional[str]:
+    """
+    Try to find an Instagram page for a company.
+    Returns: Instagram URL if found, None otherwise
+    """
+    name_bases = normalize_company_name(company_name)
+    if not name_bases:
         return None
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            url = "https://www.googleapis.com/customsearch/v1"
+    urls_to_try = []
+    for base in name_bases:
+        urls_to_try.extend([
+            f"https://www.instagram.com/{base}/",
+            f"https://www.instagram.com/{base}.ge/",
+            f"https://www.instagram.com/{base}_ge/",
+        ])
 
-            site = SOCIAL_PLATFORMS[platform]['site']
-            query = f'"{company_name}" site:{site}'
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        verify=False,
+    ) as client:
+        for url in urls_to_try[:4]:  # Limit checks
+            try:
+                r = await client.head(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                })
+                if r.status_code == 200:
+                    final_url = str(r.url)
+                    if "/accounts/login" not in final_url:
+                        return url
+            except Exception:
+                continue
 
-            params = {
-                "q": query,
-                "cx": GOOGLE_CSE_CX,
-                "key": GOOGLE_CSE_API_KEY,
-                "num": 1
-            }
-
-            response = await client.get(url, params=params)
-
-            if response.status_code == 200:
-                data = response.json()
-                items = data.get("items", [])
-
-                if items:
-                    return items[0].get("link")
-
-            return None
-
-    except Exception as e:
-        logger.error(f"Error finding {platform} profile: {e}")
-        return None
+    return None
 
 
 async def find_all_social_profiles(company_name: str) -> Dict[str, Optional[str]]:
     """
-    Find company profiles across all major social platforms
-    Searches: Facebook, Instagram, LinkedIn, Twitter
+    Find company profiles on social platforms.
+    Facebook-first (dominant in Georgia), then Instagram.
+    No API keys needed.
 
     Returns: {
         'facebook': 'url or None',
         'instagram': 'url or None',
-        'linkedin': 'url or None',
-        'twitter': 'url or None'
     }
     """
-    profiles = {}
+    profiles: Dict[str, Optional[str]] = {
+        "facebook": None,
+        "instagram": None,
+    }
 
-    # Search each platform
-    for platform in ['facebook', 'instagram', 'linkedin', 'twitter']:
-        try:
-            profile_url = await find_social_profile(company_name, platform)
-            profiles[platform] = profile_url
+    if not company_name:
+        return profiles
 
-            # Rate limiting (optional, depends on CSE quota)
-            # await asyncio.sleep(0.5)
-        except Exception as e:
-            logger.error(f"Error searching {platform}: {e}")
-            profiles[platform] = None
+    # Facebook first (most common for Georgian businesses)
+    try:
+        profiles["facebook"] = await check_facebook_page(company_name)
+        if profiles["facebook"]:
+            logger.info(f"  Facebook found: {profiles['facebook']}")
+    except Exception as e:
+        logger.debug(f"Facebook search error: {e}")
+
+    # Instagram
+    try:
+        profiles["instagram"] = await check_instagram_page(company_name)
+        if profiles["instagram"]:
+            logger.info(f"  Instagram found: {profiles['instagram']}")
+    except Exception as e:
+        logger.debug(f"Instagram search error: {e}")
 
     return profiles
 
 
 async def validate_social_profile(url: str, timeout: int = 5) -> bool:
     """
-    Check if a social media profile URL is valid/accessible
-
+    Check if a social media profile URL is valid/accessible.
     Returns: True if URL responds with 2xx/3xx, False otherwise
     """
     if not url:
         return False
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.head(url, follow_redirects=True)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
+            response = await client.head(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
             return 200 <= response.status_code < 400
-    except Exception as e:
-        logger.debug(f"Social profile validation error: {e}")
+    except Exception:
         return False

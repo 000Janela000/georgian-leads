@@ -1,6 +1,7 @@
 """
 Company enrichment service
-Orchestrates the pipeline: website detection, social media, financial data
+All-free pipeline: website detection, reportal.ge profile, social media, scoring
+No API keys required.
 """
 
 import asyncio
@@ -10,147 +11,139 @@ from sqlalchemy.orm import Session
 from app.models import Company
 from app.scrapers.web_checker import find_website
 from app.scrapers.social_finder import find_all_social_profiles
-from app.scrapers.reportal import (
-    search_financial_data,
-    calculate_priority_score
-)
+from app.scrapers.reportal import get_company_profile, calculate_priority_score
 
 logger = logging.getLogger(__name__)
 
 
 async def enrich_company(company_id: int, db: Session) -> dict:
     """
-    Enrich a single company with:
-    1. Website detection (Clearbit → Google CSE → HTTP check)
-    2. Social media profiles (Facebook, Instagram, LinkedIn, Twitter)
-    3. Financial data (from reportal.ge)
-    4. Priority scoring based on financial health + web presence
-
-    Returns: {
-        'company_id': int,
-        'website_found': bool,
-        'website_url': str or None,
-        'social_profiles': dict,
-        'financial_data': dict or None,
-        'priority': 'high' | 'medium' | 'low',
-        'status': 'success' | 'error',
-        'message': str
-    }
+    Enrich a single company with (all free, no API keys):
+    1. Website detection (DNS + HTTP, Georgian transliteration)
+    2. Reportal.ge profile (company info, directors, contact data, category)
+    3. Social media (Facebook, Instagram — direct URL checks)
+    4. Priority scoring (category-based + web presence)
     """
     try:
-        # Get company from database
         company = db.query(Company).filter(Company.id == company_id).first()
         if not company:
-            return {
-                'company_id': company_id,
-                'status': 'error',
-                'message': 'Company not found'
-            }
+            return {'company_id': company_id, 'status': 'error', 'message': 'Company not found'}
 
-        logger.info(f"Enriching company: {company.name_ge or company.name_en}")
+        company_name = company.name_ge or company.name_en
+        logger.info(f"Enriching: {company_name} (ID: {company.identification_code})")
 
         result = {
             'company_id': company_id,
             'website_found': False,
             'website_url': None,
             'social_profiles': {},
-            'financial_data': None,
-            'priority': 'low',
+            'reportal_data': None,
+            'priority': 'medium',
             'status': 'success',
             'message': 'Enrichment complete'
         }
 
-        # Step 1: Find website
-        logger.debug("Step 1: Finding website...")
-        website_result = await find_website(
-            company.name_ge or company.name_en,
-            company.identification_code or ""
-        )
+        category = ""
 
-        if website_result['status'] == 'found':
-            company.website_url = website_result['url']
-            company.website_status = 'found'
-            result['website_found'] = True
-            result['website_url'] = website_result['url']
-            logger.debug(f"Website found: {website_result['url']}")
-        else:
-            company.website_status = 'not_found'
-            logger.debug("No website found")
-
-        # Step 2: Find social media (only if no website - companies with website don't need outreach)
-        if not result['website_found']:
-            logger.debug("Step 2: Finding social media profiles...")
-            social_profiles = await find_all_social_profiles(
-                company.name_ge or company.name_en
+        # Step 1: Website detection (DNS + HTTP check, free)
+        try:
+            logger.info(f"  [1/4] Website check for {company_name}...")
+            website_result = await find_website(
+                company_name,
+                company.identification_code or ""
             )
+            if website_result['status'] == 'found':
+                company.website_url = website_result['url']
+                company.website_status = 'found'
+                result['website_found'] = True
+                result['website_url'] = website_result['url']
+                logger.info(f"  Website found: {website_result['url']}")
+            else:
+                company.website_status = 'not_found'
+                logger.info(f"  No website found")
+        except Exception as e:
+            logger.warning(f"  Website check failed: {e}")
+            company.website_status = 'not_found'
 
-            # Update company with found profiles
-            company.facebook_url = social_profiles.get('facebook')
-            company.instagram_url = social_profiles.get('instagram')
-            company.linkedin_url = social_profiles.get('linkedin')
+        # Step 2: Reportal.ge profile (company data, directors, contact info)
+        if company.identification_code:
+            try:
+                logger.info(f"  [2/4] Fetching reportal.ge profile...")
+                profile = await get_company_profile(company.identification_code)
+                if profile:
+                    # Update company with reportal data
+                    if profile.get("website") and not company.website_url:
+                        company.website_url = profile["website"]
+                        company.website_status = 'found'
+                        result['website_found'] = True
+                        result['website_url'] = profile["website"]
+                        logger.info(f"  Website from reportal: {profile['website']}")
 
-            result['social_profiles'] = {
-                k: v for k, v in social_profiles.items() if v is not None
-            }
-            logger.debug(f"Social profiles found: {result['social_profiles']}")
+                    if profile.get("address") and not company.address:
+                        company.address = profile["address"]
 
-        # Step 3: Get financial data
-        logger.debug("Step 3: Fetching financial data...")
-        financial_data = await search_financial_data(
-            company.name_ge or company.name_en,
-            company.identification_code or ""
-        )
+                    if profile.get("directors") and not company.director_name:
+                        first_director = profile["directors"][0]["name"] if profile["directors"] else ""
+                        if first_director:
+                            company.director_name = first_director
 
-        if financial_data:
-            company.financial_year = financial_data.get('year')
-            company.revenue_gel = financial_data.get('revenue')
-            company.total_assets_gel = financial_data.get('assets')
-            company.profit_gel = financial_data.get('profit')
-            company.financial_data_json = financial_data
+                    if profile.get("legal_form") and not company.legal_form:
+                        company.legal_form = profile["legal_form"]
 
-            result['financial_data'] = financial_data
-            logger.debug(f"Financial data found: {financial_data}")
+                    # Store full profile as financial data JSON
+                    company.financial_data_json = profile
+                    result['reportal_data'] = profile
+                    category = profile.get("category", "")
+                    logger.info(f"  Reportal profile loaded (activity: {profile.get('activity', 'N/A')})")
+                else:
+                    logger.info(f"  No reportal.ge profile found")
+            except Exception as e:
+                logger.warning(f"  Reportal.ge fetch failed: {e}")
+        else:
+            logger.info(f"  [2/4] Skipping reportal (no ID code)")
 
-        # Step 4: Calculate priority score
-        logger.debug("Step 4: Calculating priority score...")
+        # Step 3: Social media (Facebook, Instagram — free URL checks)
+        if not result['website_found']:
+            try:
+                logger.info(f"  [3/4] Checking social media...")
+                social_profiles = await find_all_social_profiles(company_name)
+                company.facebook_url = social_profiles.get('facebook')
+                company.instagram_url = social_profiles.get('instagram')
+                result['social_profiles'] = {k: v for k, v in social_profiles.items() if v}
+                if result['social_profiles']:
+                    logger.info(f"  Social found: {list(result['social_profiles'].keys())}")
+                else:
+                    logger.info(f"  No social profiles found")
+            except Exception as e:
+                logger.warning(f"  Social check failed: {e}")
+        else:
+            logger.info(f"  [3/4] Skipping social (has website)")
+
+        # Step 4: Priority scoring
+        logger.info(f"  [4/4] Calculating priority...")
         priority = await calculate_priority_score(
             revenue=company.revenue_gel,
             has_website=result['website_found'],
-            has_social=len(result['social_profiles'])
+            has_social=len(result['social_profiles']),
+            category=category,
         )
-
         company.priority = priority
         result['priority'] = priority
 
-        # Update enrichment timestamp
         company.last_enriched_at = datetime.utcnow()
-
-        # Commit changes
         db.commit()
-        logger.info(f"Company {company_id} enriched successfully")
+        logger.info(f"  Done: priority={priority}")
 
         return result
 
     except Exception as e:
         logger.error(f"Error enriching company {company_id}: {e}")
-        return {
-            'company_id': company_id,
-            'status': 'error',
-            'message': str(e)
-        }
+        return {'company_id': company_id, 'status': 'error', 'message': str(e)}
 
 
 async def enrich_batch(company_ids: list, db: Session) -> dict:
     """
-    Enrich multiple companies
-    Rate-limited to prevent API throttling
-
-    Returns: {
-        'total': int,
-        'successful': int,
-        'failed': int,
-        'results': [enrich_company results]
-    }
+    Enrich multiple companies with rate limiting.
     """
     results = []
     successful = 0
@@ -168,7 +161,7 @@ async def enrich_batch(company_ids: list, db: Session) -> dict:
             else:
                 failed += 1
 
-            # Rate limiting: 1 second between requests to avoid API throttling
+            # Rate limiting: 1 second between companies
             if idx < len(company_ids) - 1:
                 await asyncio.sleep(1)
 
@@ -191,18 +184,15 @@ async def enrich_batch(company_ids: list, db: Session) -> dict:
 
 async def enrich_leads(limit: int = 50, db: Session = None) -> dict:
     """
-    Enrich companies marked as leads (no website)
-    Prioritizes by financial size
-
-    Returns summary of enrichment results
+    Enrich companies that haven't been enriched yet.
+    Prioritizes by revenue (if known), then by ID.
     """
     if not db:
         return {'error': 'Database session required'}
 
     try:
-        # Get companies without websites, sorted by revenue
         companies = db.query(Company).filter(
-            Company.website_status == 'not_found',
+            Company.website_status.in_(['unknown', 'not_found']),
             Company.status == 'active'
         ).order_by(
             Company.revenue_gel.desc().nullslast()
@@ -211,8 +201,10 @@ async def enrich_leads(limit: int = 50, db: Session = None) -> dict:
         company_ids = [c.id for c in companies]
 
         if not company_ids:
-            return {'message': 'No leads to enrich', 'count': 0}
+            logger.info("No leads to enrich (all already enriched)")
+            return {'message': 'No leads to enrich', 'results': [], 'count': 0}
 
+        logger.info(f"Found {len(company_ids)} companies to enrich")
         result = await enrich_batch(company_ids, db)
         result['message'] = f"Enriched {result['successful']} leads"
 

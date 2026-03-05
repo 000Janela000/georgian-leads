@@ -1,203 +1,210 @@
 """
-Website detection and validation
-Uses Clearbit, Google CSE, and HTTP validation
+Website detection for Georgian companies
+Free methods only — no API keys required
+
+Methods (in order):
+1. Direct domain guessing with Georgian→Latin transliteration
+2. DNS resolution check
+3. HTTP HEAD validation
 """
 
-import httpx
-import os
+import asyncio
+import socket
+import re
 import logging
 from typing import Optional, List
-import re
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
-CLEARBIT_API_KEY = os.getenv("CLEARBIT_API_KEY", "")
-GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY", "")
-GOOGLE_CSE_CX = os.getenv("GOOGLE_CSE_CX", "")
+# Full Georgian→Latin transliteration map (National system / ISO 9984)
+GE_TO_LATIN = {
+    'ა': 'a', 'ბ': 'b', 'გ': 'g', 'დ': 'd', 'ე': 'e',
+    'ვ': 'v', 'ზ': 'z', 'თ': 't', 'ი': 'i', 'კ': 'k',
+    'ლ': 'l', 'მ': 'm', 'ნ': 'n', 'ო': 'o', 'პ': 'p',
+    'ჟ': 'zh', 'რ': 'r', 'ს': 's', 'ტ': 't', 'უ': 'u',
+    'ფ': 'p', 'ქ': 'k', 'ღ': 'gh', 'ყ': 'q', 'შ': 'sh',
+    'ჩ': 'ch', 'ც': 'ts', 'ძ': 'dz', 'წ': 'ts', 'ჭ': 'ch',
+    'ხ': 'kh', 'ჯ': 'j', 'ჰ': 'h',
+}
+
+# Common Georgian company suffixes to strip
+GE_SUFFIXES = [
+    'შპს', 'სს', 'ააიპ', 'სსიპ',  # Georgian: LLC, JSC, NPO, LEPL
+    'shps', 'ss',                     # transliterated
+    'llc', 'ltd', 'inc', 'jsc', 'corp', 'co',  # English
+]
 
 
-async def find_website_clearbit(company_name: str) -> Optional[str]:
+def transliterate_georgian(text: str) -> str:
+    """Convert Georgian script to Latin characters"""
+    result = []
+    for char in text:
+        if char in GE_TO_LATIN:
+            result.append(GE_TO_LATIN[char])
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def normalize_company_name(name: str) -> List[str]:
     """
-    Find company website using Clearbit Name-to-Domain API
-    Free tier: 50,000 requests/month
-
-    Returns: URL if found, None otherwise
+    Normalize a company name into possible domain bases.
+    Handles Georgian script, English names, and mixed.
+    Returns multiple candidates (e.g. with/without suffix stripping).
     """
-    if not CLEARBIT_API_KEY:
-        logger.warning("Clearbit API key not configured")
-        return None
+    if not name:
+        return []
 
+    candidates = set()
+
+    # Transliterate if Georgian
+    latin_name = transliterate_georgian(name.lower().strip())
+
+    # Also try raw lowercase (for already-Latin names)
+    raw_lower = name.lower().strip()
+
+    for variant in [latin_name, raw_lower]:
+        # Strip common suffixes
+        cleaned = variant
+        for suffix in GE_SUFFIXES:
+            # Remove suffix with optional quotes/parens around it
+            cleaned = re.sub(
+                rf'[\s\-"\'(]*{re.escape(suffix)}[\s\-"\'.)]*',
+                ' ', cleaned
+            ).strip()
+
+        # Remove all non-alphanumeric (keep only letters and digits)
+        domain_base = re.sub(r'[^a-z0-9]', '', cleaned)
+
+        if domain_base and len(domain_base) >= 3:
+            candidates.add(domain_base[:30])
+
+        # Also try keeping hyphens (some domains use them)
+        hyphen_base = re.sub(r'[^a-z0-9\-]', '', cleaned.replace(' ', '-'))
+        hyphen_base = re.sub(r'-+', '-', hyphen_base).strip('-')
+        if hyphen_base and len(hyphen_base) >= 3 and hyphen_base != domain_base:
+            candidates.add(hyphen_base[:30])
+
+    return list(candidates)
+
+
+def dns_resolve(domain: str) -> bool:
+    """Check if a domain resolves via DNS (synchronous)"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            url = "https://company.clearbit.com/v1/domains/find"
-            params = {"name": company_name}
-
-            auth = (CLEARBIT_API_KEY, "")  # Clearbit uses API key as username
-
-            response = await client.get(url, params=params, auth=auth)
-
-            if response.status_code == 200:
-                data = response.json()
-                domain = data.get("domain")
-                if domain:
-                    return f"https://{domain}"
-            elif response.status_code == 404:
-                # Company not found in Clearbit
-                return None
-            else:
-                logger.error(f"Clearbit error: {response.status_code}")
-                return None
-
-    except Exception as e:
-        logger.error(f"Clearbit API error: {e}")
-        return None
+        socket.getaddrinfo(domain, 80, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        return True
+    except (socket.gaierror, OSError):
+        return False
 
 
-async def find_website_google_cse(company_name: str) -> Optional[str]:
-    """
-    Find company website using Google Custom Search
-    Free tier: 100 queries/day, then $5 per 1000
-
-    Returns: URL if found, None otherwise
-    """
-    if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX:
-        logger.warning("Google CSE credentials not configured")
-        return None
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            url = "https://www.googleapis.com/customsearch/v1"
-
-            # Search for official website
-            query = f'"{company_name}" georgia site:*.ge OR site:*.com official website'
-
-            params = {
-                "q": query,
-                "cx": GOOGLE_CSE_CX,
-                "key": GOOGLE_CSE_API_KEY,
-                "num": 1  # Only get first result
-            }
-
-            response = await client.get(url, params=params)
-
-            if response.status_code == 200:
-                data = response.json()
-                items = data.get("items", [])
-
-                if items:
-                    # Filter for actual company websites (skip facebook, linkedin, etc)
-                    for item in items:
-                        result_url = item.get("link", "")
-                        # Skip social media and directories
-                        if not any(x in result_url.lower() for x in
-                                 ["facebook", "linkedin", "instagram", "twitter", "youtube"]):
-                            return result_url
-
-            return None
-
-    except Exception as e:
-        logger.error(f"Google CSE error: {e}")
-        return None
+async def check_dns(domain: str) -> bool:
+    """Async wrapper for DNS resolution"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, dns_resolve, domain)
 
 
 async def validate_website(url: str, timeout: int = 5) -> bool:
     """
-    Validate if a URL is live and accessible
-
-    Returns: True if URL responds with 2xx/3xx, False otherwise
+    Validate if a URL is live and accessible.
+    Returns True if URL responds with 2xx/3xx.
     """
     if not url:
         return False
 
     try:
-        # Ensure URL has protocol
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            # Use HEAD request for speed (doesn't download full content)
-            response = await client.head(url, follow_redirects=True)
-
-            # 2xx = success, 3xx = redirect (still valid), 4xx/5xx = error
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            verify=False,  # Some Georgian sites have bad SSL
+        ) as client:
+            response = await client.head(url)
+            if response.status_code == 405:
+                # HEAD not allowed, try GET
+                response = await client.get(url)
             return 200 <= response.status_code < 400
 
-    except Exception as e:
-        logger.debug(f"Website validation error for {url}: {e}")
+    except Exception:
         return False
 
 
 async def find_website(company_name: str, company_id: str = "") -> dict:
     """
-    Find company website using multiple methods in order:
-    1. Clearbit API (fastest, most reliable)
-    2. Google Custom Search (broader coverage)
-    3. Direct domain guessing (last resort)
+    Find company website using free methods:
+    1. Generate domain candidates from company name (with Georgian transliteration)
+    2. DNS check each candidate
+    3. HTTP validate live domains
 
     Returns: {
         'url': found URL or None,
-        'status': 'found' | 'not_found' | 'unknown',
-        'method': which method found it,
-        'validated': whether URL was verified alive
+        'status': 'found' | 'not_found',
+        'method': 'domain_guess' | None,
+        'validated': bool
     }
     """
     result = {
         'url': None,
-        'status': 'unknown',
+        'status': 'not_found',
         'method': None,
-        'validated': False
+        'validated': False,
     }
 
-    # Try Clearbit first (fastest)
-    url = await find_website_clearbit(company_name)
-    if url:
-        validated = await validate_website(url)
-        result['url'] = url
-        result['status'] = 'found' if validated else 'not_found'
-        result['method'] = 'clearbit'
-        result['validated'] = validated
+    # Generate domain candidates
+    name_bases = normalize_company_name(company_name)
+    if not name_bases:
         return result
 
-    # Try Google CSE next
-    url = await find_website_google_cse(company_name)
-    if url:
-        validated = await validate_website(url)
-        result['url'] = url
-        result['status'] = 'found' if validated else 'not_found'
-        result['method'] = 'google_cse'
-        result['validated'] = validated
+    # Build list of domains to try
+    domains_to_try = []
+    for base in name_bases:
+        domains_to_try.extend([
+            f"{base}.ge",
+            f"www.{base}.ge",
+            f"{base}.com.ge",
+            f"{base}.com",
+            f"www.{base}.com",
+        ])
+
+    # DNS check all candidates in parallel
+    dns_tasks = [check_dns(domain) for domain in domains_to_try]
+    dns_results = await asyncio.gather(*dns_tasks)
+
+    # Collect domains that resolve
+    live_domains = [
+        domains_to_try[i]
+        for i, resolved in enumerate(dns_results)
+        if resolved
+    ]
+
+    if not live_domains:
         return result
 
-    # Try direct domain guesses (Georgian companies often use .ge domain)
-    direct_urls = await try_direct_domains(company_name)
-    for url in direct_urls:
+    # HTTP validate the first few live domains (limit to avoid slowness)
+    for domain in live_domains[:5]:
+        url = f"https://{domain}"
         if await validate_website(url):
             result['url'] = url
             result['status'] = 'found'
-            result['method'] = 'direct_guess'
+            result['method'] = 'domain_guess'
             result['validated'] = True
             return result
 
-    # Nothing found
+        # Try http:// if https:// fails
+        url_http = f"http://{domain}"
+        if await validate_website(url_http):
+            result['url'] = url_http
+            result['status'] = 'found'
+            result['method'] = 'domain_guess'
+            result['validated'] = True
+            return result
+
+    # DNS resolved but HTTP failed — domain exists but site is down
+    result['url'] = f"https://{live_domains[0]}"
     result['status'] = 'not_found'
+    result['method'] = 'domain_guess'
+    result['validated'] = False
     return result
-
-
-async def try_direct_domains(company_name: str) -> List[str]:
-    """
-    Try common domain patterns for Georgian companies
-    Returns list of URLs to try
-    """
-    # Normalize company name
-    domain_base = company_name.lower()
-    domain_base = re.sub(r'[^a-z0-9]', '', domain_base)  # Remove special chars
-    domain_base = domain_base[:30]  # Limit length
-
-    urls_to_try = [
-        f"https://{domain_base}.ge",
-        f"https://{domain_base}.com.ge",
-        f"https://{domain_base}.com",
-        f"https://www.{domain_base}.ge",
-        f"https://www.{domain_base}.com",
-    ]
-
-    return urls_to_try

@@ -1,227 +1,196 @@
 """
-reportal.ge financial data scraper
-Scrapes annual financial statements from SARAS reportal.ge
+reportal.ge company data scraper
+Fetches company profile data from Georgia's financial reporting portal
+
+Data available (no auth required):
+- Company name, ID code, legal form
+- Industry/activity sector
+- Address, phone, website
+- Directors (names + roles)
+- Supervisory board members
+- Registration date
+
+Note: Financial statements (revenue, profit) require login — not available via scraping.
+We use the company category (I-IV) from the listing as a size proxy instead.
 """
 
 import httpx
-from bs4 import BeautifulSoup
 import logging
-from typing import Optional, Dict
-import re
+from typing import Optional, Dict, List
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://reportal.ge/en/Reports"
+BASE_URL = "https://reportal.ge"
 
 
-async def search_financial_data(company_name: str, company_id: str = "") -> Optional[Dict]:
+async def get_company_profile(identification_code: str) -> Optional[Dict]:
     """
-    Search for company financial data on reportal.ge
+    Fetch company profile from reportal.ge JSON API.
+    Uses the public GetProfileData endpoint (no auth required).
 
-    Searches by company name or ID code.
-    Returns financial summary if found.
+    Returns dict with: name, legal_form, activity, address, phone, web,
+                       directors, board_members, registration_date
+    Returns None if company not found.
     """
+    if not identification_code:
+        return None
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # reportal.ge is a POST-based search interface
-            # This would require Playwright for full JS rendering
-            # For now, we'll try a simpler HTTP approach
-
-            params = {
-                'q': company_name or company_id,
-                'type': 'entity'
-            }
-
-            response = await client.get(
-                f"{BASE_URL}/Search",
-                params=params,
-                follow_redirects=True
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            # First load the report page to establish session
+            await client.get(
+                f"{BASE_URL}/en/Reports/Report?q={identification_code}"
             )
 
-            if response.status_code != 200:
-                logger.warning(f"Reportal.ge search failed for {company_name}")
+            # Fetch JSON profile data
+            r = await client.get(
+                f"{BASE_URL}/en/Reports/GetProfileData",
+                params={"q": identification_code},
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": f"{BASE_URL}/en/Reports/Report?q={identification_code}",
+                },
+            )
+
+            if r.status_code == 404:
                 return None
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+            r.raise_for_status()
+            data = r.json()
 
-            # Try to find financial data in search results
-            # Note: This is a template - actual structure depends on reportal.ge HTML
-            financial_data = {
-                'year': None,
-                'revenue': None,
-                'assets': None,
-                'profit': None,
-                'url': None
+            if not data or not data.get("id_code"):
+                return None
+
+            # Parse directors
+            directors = []
+            for d in data.get("directors", []):
+                name = f"{d.get('FirstName', '')} {d.get('LastName', '')}".strip()
+                if name:
+                    directors.append({
+                        "name": name,
+                        "role": d.get("PersonType", ""),
+                    })
+
+            # Parse board members
+            board_members = data.get("govern_boards", {}).get("eng", [])
+
+            return {
+                "identification_code": data.get("id_code", ""),
+                "name": data.get("name", ""),
+                "legal_form": data.get("form", ""),
+                "activity": data.get("activity", ""),
+                "address": data.get("address", ""),
+                "phone": data.get("phone", ""),
+                "website": data.get("web", ""),
+                "registration_date": data.get("registration_date", ""),
+                "directors": directors,
+                "board_members": board_members,
+                "governance": data.get("governance_authority", ""),
+                "regulatory": data.get("regulatory", ""),
+                "liquidation": data.get("liquidation", ""),
             }
 
-            # Look for result links
-            result_links = soup.find_all('a', class_='report-link')
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Reportal.ge HTTP error for {identification_code}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching reportal.ge profile for {identification_code}: {e}")
+        return None
 
-            if result_links:
-                # Get first result
-                first_result = result_links[0]
-                report_url = first_result.get('href', '')
 
-                # Try to scrape the report
-                detail = await scrape_financial_detail(report_url)
-                if detail:
-                    return detail
+async def search_company_list(name: str = "", page: int = 1) -> List[Dict]:
+    """
+    Search the reportal.ge company listing.
+    Returns list of companies with: id_code, name, category, activity, legal_form
 
-            return None
+    Note: The List endpoint returns paginated results but doesn't filter well by name.
+    For best results, use get_company_profile() with a known identification_code.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            # Load main page for session
+            await client.get(f"{BASE_URL}/en/Reports")
+
+            r = await client.post(
+                f"{BASE_URL}/en/Reports/List",
+                data={"name": name, "page": str(page)},
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": f"{BASE_URL}/en/Reports",
+                },
+            )
+
+            if r.status_code != 200:
+                return []
+
+            soup = BeautifulSoup(r.text, "html.parser")
+            results = []
+
+            for row in soup.select("tbody tr"):
+                cells = row.find_all("td")
+                if len(cells) < 5:
+                    continue
+
+                id_code = cells[0].get_text(strip=True)
+                link = cells[1].find("a")
+                name_text = link.get_text(strip=True) if link else ""
+                category = cells[2].get_text(strip=True)
+                activity = cells[3].get_text(strip=True)
+                legal_form = cells[4].get_text(strip=True)
+
+                if id_code:
+                    results.append({
+                        "identification_code": id_code,
+                        "name": name_text,
+                        "category": category,  # I, II, III, IV (I = largest)
+                        "activity": activity,
+                        "legal_form": legal_form,
+                    })
+
+            return results
 
     except Exception as e:
         logger.error(f"Error searching reportal.ge: {e}")
-        return None
-
-
-async def scrape_financial_detail(report_url: str) -> Optional[Dict]:
-    """
-    Scrape detailed financial information from a company report
-    Extracts: revenue, total assets, profit, year
-
-    Note: reportal.ge uses JavaScript for rendering. For production use,
-    consider using Playwright instead of httpx.
-    """
-    if not report_url:
-        return None
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(report_url, follow_redirects=True)
-
-            if response.status_code != 200:
-                return None
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            financial_data = {
-                'year': None,
-                'revenue': None,
-                'assets': None,
-                'profit': None,
-                'url': report_url
-            }
-
-            # Extract year from report
-            try:
-                year_elem = soup.find('span', class_='report-year')
-                if year_elem:
-                    year_text = year_elem.get_text(strip=True)
-                    # Extract 4-digit year
-                    year_match = re.search(r'\d{4}', year_text)
-                    if year_match:
-                        financial_data['year'] = int(year_match.group())
-            except Exception as e:
-                logger.debug(f"Error extracting year: {e}")
-
-            # Extract revenue
-            try:
-                revenue_rows = soup.find_all('tr')
-                for row in revenue_rows:
-                    if 'revenue' in row.get_text(strip=True).lower():
-                        cells = row.find_all('td')
-                        if len(cells) >= 2:
-                            revenue_text = cells[-1].get_text(strip=True)
-                            revenue = parse_number(revenue_text)
-                            if revenue:
-                                financial_data['revenue'] = revenue
-                                break
-            except Exception as e:
-                logger.debug(f"Error extracting revenue: {e}")
-
-            # Extract total assets
-            try:
-                for row in soup.find_all('tr'):
-                    if 'total assets' in row.get_text(strip=True).lower():
-                        cells = row.find_all('td')
-                        if len(cells) >= 2:
-                            assets_text = cells[-1].get_text(strip=True)
-                            assets = parse_number(assets_text)
-                            if assets:
-                                financial_data['assets'] = assets
-                                break
-            except Exception as e:
-                logger.debug(f"Error extracting assets: {e}")
-
-            # Extract profit
-            try:
-                for row in soup.find_all('tr'):
-                    if 'profit' in row.get_text(strip=True).lower():
-                        cells = row.find_all('td')
-                        if len(cells) >= 2:
-                            profit_text = cells[-1].get_text(strip=True)
-                            profit = parse_number(profit_text)
-                            if profit:
-                                financial_data['profit'] = profit
-                                break
-            except Exception as e:
-                logger.debug(f"Error extracting profit: {e}")
-
-            return financial_data
-
-    except Exception as e:
-        logger.error(f"Error scraping financial detail: {e}")
-        return None
-
-
-def parse_number(text: str) -> Optional[float]:
-    """
-    Parse financial numbers from text
-    Handles: 1,234,567.89 or 1 234 567,89 formats
-    Returns float or None if parsing fails
-    """
-    if not text:
-        return None
-
-    try:
-        # Remove currency symbols and whitespace
-        text = text.strip()
-        text = re.sub(r'[^\d.,\-]', '', text)
-
-        # Handle different decimal formats
-        if ',' in text and '.' in text:
-            # Both present, use rightmost as decimal
-            if text.rindex(',') > text.rindex('.'):
-                text = text.replace('.', '').replace(',', '.')
-            else:
-                text = text.replace(',', '')
-        elif ',' in text:
-            # Only comma, might be decimal or thousands
-            if text.count(',') == 1 and len(text.split(',')[1]) <= 2:
-                text = text.replace(',', '.')
-            else:
-                text = text.replace(',', '')
-
-        return float(text) if text else None
-    except Exception as e:
-        logger.debug(f"Error parsing number '{text}': {e}")
-        return None
+        return []
 
 
 async def calculate_priority_score(
     revenue: Optional[float] = None,
     has_website: bool = False,
-    has_social: int = 0
+    has_social: int = 0,
+    category: str = "",
 ) -> str:
     """
-    Calculate priority score for a lead
+    Calculate priority score for a lead.
+
+    Uses company category from reportal.ge as size proxy:
+    - Category I: Largest companies (public interest entities)
+    - Category II: Large companies
+    - Category III: Medium companies
+    - Category IV: Small companies
 
     Returns: 'high' | 'medium' | 'low'
-
-    Scoring:
-    - High: Revenue > 500K GEL + no website
-    - Medium: Revenue 100K-500K GEL + no website or has social but no website
-    - Low: Revenue < 100K or has website
     """
     if has_website:
-        return 'low'  # Has website, not a lead
+        return "low"  # Has website — not a lead for web dev services
 
-    if revenue is None:
-        return 'medium'  # Unknown revenue, medium priority
+    # Use revenue if available
+    if revenue is not None:
+        if revenue > 500_000:
+            return "high"
+        elif revenue > 100_000:
+            return "medium"
+        else:
+            return "low"
 
-    if revenue > 500000:  # > 500K GEL
-        return 'high'
-    elif revenue > 100000:  # 100K-500K GEL
-        return 'medium'
-    else:
-        return 'low'
+    # Use reportal.ge category as size proxy
+    if category in ("I", "II"):
+        return "high"
+    elif category == "III":
+        return "medium"
+    elif category == "IV":
+        return "low"
+
+    # Unknown size — default to medium (worth trying)
+    return "medium"

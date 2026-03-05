@@ -1,9 +1,16 @@
 import os
+import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, SessionLocal
-from app.routers import companies, outreach, templates, stats, import_data
+from app.routers import companies, outreach, templates, stats, import_data, settings
 from app.services.templates import seed_default_templates
 
 load_dotenv()
@@ -17,8 +24,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8000"],
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -41,6 +47,7 @@ app.include_router(outreach.router, prefix="/api/outreach", tags=["outreach"])
 app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(import_data.router, prefix="/api/import", tags=["import"])
+app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 
 
 @app.get("/")

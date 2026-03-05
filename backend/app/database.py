@@ -8,14 +8,8 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/leads.db")
-
-# For SQLite, convert relative path to absolute
-if DATABASE_URL.startswith("sqlite:///"):
-    db_path = DATABASE_URL.replace("sqlite:///", "")
-    if not db_path.startswith("/"):
-        db_path = str(DATA_DIR / db_path)
-    DATABASE_URL = f"sqlite:///{db_path}"
+DB_PATH = str(DATA_DIR / "leads.db")
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
 engine = create_engine(
     DATABASE_URL,

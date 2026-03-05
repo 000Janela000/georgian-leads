@@ -4,9 +4,9 @@ from app.database import get_db
 from app.models import Outreach, Company, Template
 from app.schemas import OutreachCreate, OutreachUpdate, OutreachResponse
 from typing import List
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
-import asyncio
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -93,6 +93,20 @@ def delete_outreach(outreach_id: int, db: Session = Depends(get_db)):
     db.delete(db_outreach)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/contacted-ids")
+def get_contacted_ids(
+    days: int = Query(30),
+    db: Session = Depends(get_db)
+):
+    """Get list of company IDs contacted in the last N days"""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    rows = db.query(Outreach.company_id).filter(
+        Outreach.sent_at >= cutoff,
+        Outreach.status.in_(['sent', 'delivered', 'read', 'replied'])
+    ).distinct().all()
+    return [r[0] for r in rows]
 
 
 # ========== Send Message Endpoints ==========
@@ -253,6 +267,27 @@ async def send_bulk_messages(
     if not companies:
         raise HTTPException(status_code=400, detail="No companies found to send to")
 
+    # Dedup: skip companies contacted on same channel in last 30 days
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    recently_contacted = set(
+        r[0] for r in db.query(Outreach.company_id).filter(
+            Outreach.channel == request.channel,
+            Outreach.sent_at >= cutoff,
+            Outreach.status.in_(['sent', 'delivered', 'read', 'replied'])
+        ).distinct().all()
+    )
+    original_count = len(companies)
+    companies = [c for c in companies if c.id not in recently_contacted]
+    skipped_dedup = original_count - len(companies)
+
+    if not companies:
+        return {
+            'total_sent': 0,
+            'total_failed': 0,
+            'skipped_dedup': skipped_dedup,
+            'message': f"All {skipped_dedup} companies were already contacted in the last 30 days"
+        }
+
     # Prepare recipients
     recipients = []
     for company in companies:
@@ -310,6 +345,8 @@ async def send_bulk_messages(
     return {
         'total_sent': result['successful'],
         'total_failed': result['failed'],
-        'message': f"Sent {result['successful']}/{result['total']} messages",
+        'skipped_dedup': skipped_dedup,
+        'message': f"Sent {result['successful']}/{result['total']} messages" +
+                   (f" (skipped {skipped_dedup} already contacted)" if skipped_dedup else ""),
         'errors': result.get('errors', [])
     }
