@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { Company } from '../lib/types'
 
 export default function Companies() {
-  const [companies, setCompanies] = useState<any[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   const [contactedIds, setContactedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [websiteStatus, setWebsiteStatus] = useState('')
   const [leadStatus, setLeadStatus] = useState('')
@@ -13,21 +16,37 @@ export default function Companies() {
   const limit = 50
 
   useEffect(() => {
-    api.getContactedIds().then(ids => setContactedIds(new Set(ids))).catch(() => {})
+    api.getContactedIds().then(ids => setContactedIds(new Set(ids))).catch(() => setContactedIds(new Set()))
   }, [])
 
   useEffect(() => {
-    setLoading(true)
+    let isCancelled = false
+
     api.listCompanies({
       skip: page * limit,
       limit,
       search: search || undefined,
       website_status: websiteStatus || undefined,
       lead_status: leadStatus || undefined,
+    }).then(result => {
+      if (!isCancelled) {
+        setCompanies(result)
+        setError('')
+      }
+    }).catch(fetchError => {
+      if (!isCancelled) {
+        setCompanies([])
+        setError(getErrorMessage(fetchError, 'Failed to load companies'))
+      }
+    }).finally(() => {
+      if (!isCancelled) {
+        setLoading(false)
+      }
     })
-      .then(setCompanies)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+
+    return () => {
+      isCancelled = true
+    }
   }, [page, search, websiteStatus, leadStatus])
 
   const statusBadge = (status: string) => {
@@ -53,22 +72,35 @@ export default function Companies() {
   return (
     <div className="p-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Companies</h1>
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
       <div className="flex gap-3 mb-4 flex-wrap">
         <input
           type="text"
           placeholder="Search by name or ID..."
           value={search}
-          onChange={e => { setSearch(e.target.value); setPage(0) }}
+          onChange={e => {
+            setLoading(true)
+            setSearch(e.target.value)
+            setPage(0)
+          }}
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-64"
         />
-        <select value={websiteStatus} onChange={e => { setWebsiteStatus(e.target.value); setPage(0) }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <select value={websiteStatus} onChange={e => {
+          setLoading(true)
+          setWebsiteStatus(e.target.value)
+          setPage(0)
+        }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">All Website Status</option>
           <option value="found">Found</option>
           <option value="not_found">Not Found</option>
           <option value="unknown">Unknown</option>
         </select>
-        <select value={leadStatus} onChange={e => { setLeadStatus(e.target.value); setPage(0) }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <select value={leadStatus} onChange={e => {
+          setLoading(true)
+          setLeadStatus(e.target.value)
+          setPage(0)
+        }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">All Lead Status</option>
           <option value="new">New</option>
           <option value="contacted">Contacted</option>
@@ -95,19 +127,19 @@ export default function Companies() {
                 </tr>
               </thead>
               <tbody>
-                {companies.map((c: any) => (
+                {companies.map(c => (
                   <tr key={c.id} className="border-b hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link to={`/companies/${c.id}`} className="text-blue-600 hover:underline font-medium">
-                        {c.name_en || c.name_ka}
+                        {c.name_en || c.name_ge}
                       </Link>
-                      {c.name_ka && c.name_en && <p className="text-xs text-gray-500">{c.name_ka}</p>}
+                      {c.name_ge && c.name_en && <p className="text-xs text-gray-500">{c.name_ge}</p>}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{c.identification_code}</td>
                     <td className="px-4 py-3 text-gray-600">{c.legal_form || '-'}</td>
                     <td className="px-4 py-3">{statusBadge(c.website_status || 'unknown')}</td>
                     <td className="px-4 py-3 text-gray-600">
-                      {c.revenue ? `${(c.revenue / 1_000_000).toFixed(1)}M` : '-'}
+                      {c.revenue_gel ? `${(c.revenue_gel / 1_000_000).toFixed(1)}M` : '-'}
                     </td>
                     <td className="px-4 py-3 flex items-center gap-1.5">
                       {leadBadge(c.lead_status || 'new')}
@@ -122,9 +154,15 @@ export default function Companies() {
             </table>
           </div>
           <div className="flex gap-3 mt-4 items-center">
-            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-3 py-1.5 bg-white border rounded-lg text-sm disabled:opacity-50">Previous</button>
+            <button onClick={() => {
+              setLoading(true)
+              setPage(p => Math.max(0, p - 1))
+            }} disabled={page === 0} className="px-3 py-1.5 bg-white border rounded-lg text-sm disabled:opacity-50">Previous</button>
             <span className="text-sm text-gray-600">Page {page + 1}</span>
-            <button onClick={() => setPage(p => p + 1)} disabled={companies.length < limit} className="px-3 py-1.5 bg-white border rounded-lg text-sm disabled:opacity-50">Next</button>
+            <button onClick={() => {
+              setLoading(true)
+              setPage(p => p + 1)
+            }} disabled={companies.length < limit} className="px-3 py-1.5 bg-white border rounded-lg text-sm disabled:opacity-50">Next</button>
           </div>
         </>
       )}

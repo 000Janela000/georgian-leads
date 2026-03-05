@@ -9,10 +9,11 @@ Methods (in order):
 """
 
 import asyncio
-import socket
-import re
 import logging
-from typing import Optional, List
+import os
+import re
+import socket
+from typing import List, Optional
 
 import httpx
 
@@ -35,6 +36,8 @@ GE_SUFFIXES = [
     'shps', 'ss',                     # transliterated
     'llc', 'ltd', 'inc', 'jsc', 'corp', 'co',  # English
 ]
+
+INSECURE_SSL = os.getenv("SCRAPER_INSECURE_SSL", "false").lower() in {"1", "true", "yes", "on"}
 
 
 def transliterate_georgian(text: str) -> str:
@@ -120,7 +123,7 @@ async def validate_website(url: str, timeout: int = 5) -> bool:
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
-            verify=False,  # Some Georgian sites have bad SSL
+            verify=not INSECURE_SSL,
         ) as client:
             response = await client.head(url)
             if response.status_code == 405:

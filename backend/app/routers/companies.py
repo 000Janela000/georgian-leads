@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from app.database import get_db
 from app.models import Company
-from app.schemas import CompanyCreate, CompanyUpdate, CompanyResponse
+from app.schemas import CompanyCreate, CompanyUpdate, CompanyResponse, LeadResponse
+from app.services.contact_status import get_contact_status_map
+from app.services.lead_scoring import compute_score, get_source_meta, social_active
 from typing import List
-import asyncio
+from pydantic import BaseModel, Field
 
 router = APIRouter()
+
+
+class EnrichBatchRequest(BaseModel):
+    company_ids: List[int] | None = None
+    limit: int = Field(default=10, ge=1, le=500)
 
 
 @router.get("/", response_model=List[CompanyResponse])
@@ -36,6 +43,94 @@ def list_companies(
 
     companies = query.offset(skip).limit(limit).all()
     return companies
+
+
+@router.get("/lead-status/no-website", response_model=List[LeadResponse])
+def get_leads_without_website(
+    skip: int = Query(0),
+    limit: int = Query(50),
+    social_active_only: bool = Query(False),
+    revenue_type: str = Query(None),  # exact, estimated, unknown
+    contact_badge: str = Query(None),  # never_contacted, tried, contacted_recently
+    include_contacted_recently: bool = Query(False),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db)
+):
+    """Get active no-website leads with score, offer lane, and outreach badge."""
+    query = db.query(Company).filter(
+        and_(
+            Company.website_status == "not_found",
+            Company.status == "active"
+        )
+    )
+
+    if social_active_only:
+        query = query.filter(
+            or_(
+                Company.facebook_url.isnot(None),
+                Company.instagram_url.isnot(None),
+                Company.linkedin_url.isnot(None),
+            )
+        )
+
+    companies = query.all()
+    company_ids = [c.id for c in companies]
+    contact_map = get_contact_status_map(db, days=days, company_ids=company_ids)
+
+    leads = []
+    for company in companies:
+        badge = contact_map.get(company.id, "never_contacted")
+        if not include_contacted_recently and badge == "contacted_recently":
+            continue
+        if contact_badge and badge != contact_badge:
+            continue
+
+        score, computed_revenue_type, offer_lane = compute_score(company, badge)
+        if revenue_type and computed_revenue_type != revenue_type:
+            continue
+
+        leads.append(
+            {
+                "id": company.id,
+                "name_ge": company.name_ge,
+                "name_en": company.name_en,
+                "identification_code": company.identification_code,
+                "legal_form": company.legal_form,
+                "registration_date": company.registration_date,
+                "status": company.status,
+                "address": company.address,
+                "director_name": company.director_name,
+                "website_url": company.website_url,
+                "website_status": company.website_status,
+                "facebook_url": company.facebook_url,
+                "instagram_url": company.instagram_url,
+                "linkedin_url": company.linkedin_url,
+                "revenue_gel": company.revenue_gel,
+                "total_assets_gel": company.total_assets_gel,
+                "lead_status": company.lead_status,
+                "priority": company.priority,
+                "lead_score": score,
+                "offer_lane": offer_lane,
+                "revenue_type": computed_revenue_type,
+                "tags": company.tags,
+                "last_enriched_at": company.last_enriched_at,
+                "created_at": company.created_at,
+                "updated_at": company.updated_at,
+                "social_active": social_active(company),
+                "contact_badge": badge,
+                "score": score,
+                "source_meta": get_source_meta(company),
+            }
+        )
+
+    leads.sort(
+        key=lambda item: (
+            -item["score"],
+            -(item["revenue_gel"] or 0),
+            item["id"],
+        )
+    )
+    return leads[skip: skip + limit]
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
@@ -89,22 +184,6 @@ def delete_company(company_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
-@router.get("/lead-status/no-website", response_model=List[CompanyResponse])
-def get_leads_without_website(
-    skip: int = Query(0),
-    limit: int = Query(50),
-    db: Session = Depends(get_db)
-):
-    """Get companies without a website (leads), sorted by revenue"""
-    companies = db.query(Company).filter(
-        and_(
-            Company.website_status == "not_found",
-            Company.status == "active"
-        )
-    ).order_by(Company.revenue_gel.desc()).offset(skip).limit(limit).all()
-    return companies
-
-
 @router.post("/{company_id}/enrich")
 async def trigger_enrich_company(company_id: int, db: Session = Depends(get_db)):
     """Trigger enrichment for a single company"""
@@ -120,8 +199,7 @@ async def trigger_enrich_company(company_id: int, db: Session = Depends(get_db))
 
 @router.post("/enrich-batch")
 async def trigger_enrich_batch(
-    company_ids: List[int] = Query(None),
-    limit: int = Query(10),
+    request: EnrichBatchRequest = Body(default_factory=EnrichBatchRequest),
     db: Session = Depends(get_db)
 ):
     """
@@ -132,11 +210,11 @@ async def trigger_enrich_batch(
     """
     from app.services.enrichment import enrich_batch, enrich_leads
 
-    if company_ids:
+    if request.company_ids:
         # Enrich specific companies
-        result = await enrich_batch(company_ids, db)
+        result = await enrich_batch(request.company_ids, db)
     else:
         # Enrich leads (no website) up to limit
-        result = await enrich_leads(limit=limit, db=db)
+        result = await enrich_leads(limit=request.limit, db=db)
 
     return result

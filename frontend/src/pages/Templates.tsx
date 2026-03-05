@@ -1,13 +1,30 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { TemplateRecord } from '../lib/types'
+
+interface TemplateForm {
+  name: string
+  language: string
+  channel: 'email' | 'whatsapp'
+  subject: string
+  body: string
+}
 
 export default function Templates() {
-  const [templates, setTemplates] = useState<any[]>([])
+  const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<any>(null)
-  const [form, setForm] = useState({ name: '', language: 'en', channel: 'email', subject: '', body: '' })
+  const [editing, setEditing] = useState<TemplateRecord | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
+  const [form, setForm] = useState<TemplateForm>({ name: '', language: 'en', channel: 'email', subject: '', body: '' })
 
-  const load = () => api.listTemplates().then(setTemplates).catch(() => {}).finally(() => setLoading(false))
+  const load = () => api.listTemplates().then(data => {
+    setTemplates(data)
+    setError('')
+  }).catch(fetchError => {
+    setError(getErrorMessage(fetchError, 'Failed to load templates'))
+  }).finally(() => setLoading(false))
   useEffect(() => { load() }, [])
 
   const save = async () => {
@@ -18,18 +35,26 @@ export default function Templates() {
         await api.createTemplate(form)
       }
       setEditing(null)
+      setCreating(false)
       setForm({ name: '', language: 'en', channel: 'email', subject: '', body: '' })
       load()
-    } catch { }
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, 'Failed to save template'))
+    }
   }
 
   const remove = async (id: number) => {
     if (!confirm('Delete this template?')) return
-    await api.deleteTemplate(id).catch(() => {})
-    load()
+    try {
+      await api.deleteTemplate(id)
+      load()
+    } catch (removeError) {
+      setError(getErrorMessage(removeError, 'Failed to delete template'))
+    }
   }
 
-  const startEdit = (t: any) => {
+  const startEdit = (t: TemplateRecord) => {
+    setCreating(false)
     setEditing(t)
     setForm({ name: t.name, language: t.language, channel: t.channel, subject: t.subject || '', body: t.body })
   }
@@ -40,12 +65,17 @@ export default function Templates() {
     <div className="p-8 max-w-3xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Templates</h1>
-        <button onClick={() => { setEditing({}); setForm({ name: '', language: 'en', channel: 'email', subject: '', body: '' }) }} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm font-medium">New Template</button>
+        <button onClick={() => {
+          setEditing(null)
+          setCreating(true)
+          setForm({ name: '', language: 'en', channel: 'email', subject: '', body: '' })
+        }} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm font-medium">New Template</button>
       </div>
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
-      {editing && (
+      {(editing || creating) && (
         <div className="bg-white rounded-lg border p-5 mb-6">
-          <h2 className="font-semibold mb-3">{editing.id ? 'Edit' : 'New'} Template</h2>
+          <h2 className="font-semibold mb-3">{editing?.id ? 'Edit' : 'New'} Template</h2>
           <div className="space-y-3">
             <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Template name" className="w-full px-3 py-2 border rounded-lg text-sm" />
             <div className="flex gap-3">
@@ -53,7 +83,7 @@ export default function Templates() {
                 <option value="en">English</option>
                 <option value="ka">Georgian</option>
               </select>
-              <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value })} className="px-3 py-2 border rounded-lg text-sm">
+              <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value as 'email' | 'whatsapp' })} className="px-3 py-2 border rounded-lg text-sm">
                 <option value="email">Email</option>
                 <option value="whatsapp">WhatsApp</option>
               </select>
@@ -64,14 +94,17 @@ export default function Templates() {
             <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} placeholder="Message body (use {name} and {company_name} for personalization)" rows={5} className="w-full px-3 py-2 border rounded-lg text-sm resize-none" />
             <div className="flex gap-2">
               <button onClick={save} className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm">Save</button>
-              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-gray-100 rounded-lg text-sm">Cancel</button>
+              <button onClick={() => {
+                setEditing(null)
+                setCreating(false)
+              }} className="px-4 py-2 bg-gray-100 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
       <div className="space-y-3">
-        {templates.map((t: any) => (
+        {templates.map(t => (
           <div key={t.id} className="bg-white rounded-lg border p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">

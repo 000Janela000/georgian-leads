@@ -2,15 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Users, Globe, Zap, Mail, CheckCircle } from 'lucide-react'
-
-interface Stats {
-  total_companies: number
-  companies_with_website: number
-  companies_without_website: number
-  contacted: number
-  converted: number
-  financial_data_available: number
-}
+import type { Stats } from '../lib/types'
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)

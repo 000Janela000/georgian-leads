@@ -7,11 +7,13 @@ No API keys required — uses direct URL checks
 import httpx
 import re
 import logging
+import os
 from typing import Dict, Optional
 from urllib.parse import quote_plus
 from app.scrapers.web_checker import transliterate_georgian, normalize_company_name
 
 logger = logging.getLogger(__name__)
+INSECURE_SSL = os.getenv("SCRAPER_INSECURE_SSL", "false").lower() in {"1", "true", "yes", "on"}
 
 
 async def check_facebook_page(company_name: str, timeout: int = 8) -> Optional[str]:
@@ -37,7 +39,7 @@ async def check_facebook_page(company_name: str, timeout: int = 8) -> Optional[s
     async with httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,
-        verify=False,
+        verify=not INSECURE_SSL,
     ) as client:
         for url in urls_to_try[:6]:  # Limit checks
             try:
@@ -76,7 +78,7 @@ async def check_instagram_page(company_name: str, timeout: int = 8) -> Optional[
     async with httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,
-        verify=False,
+        verify=not INSECURE_SSL,
     ) as client:
         for url in urls_to_try[:4]:  # Limit checks
             try:
@@ -140,7 +142,7 @@ async def validate_social_profile(url: str, timeout: int = 5) -> bool:
         return False
 
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=not INSECURE_SSL) as client:
             response = await client.head(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             })

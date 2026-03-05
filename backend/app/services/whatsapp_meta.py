@@ -15,7 +15,7 @@ META_WHATSAPP_TOKEN = os.getenv("META_WHATSAPP_TOKEN", "")
 META_WHATSAPP_PHONE_ID = os.getenv("META_WHATSAPP_PHONE_ID", "")
 META_WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("META_WHATSAPP_BUSINESS_ACCOUNT_ID", "")
 
-BASE_URL = "https://graph.instagram.com/v18.0"
+BASE_URL = os.getenv("META_GRAPH_BASE_URL", "https://graph.facebook.com/v18.0")
 
 
 async def send_whatsapp_meta(
@@ -88,7 +88,7 @@ async def send_whatsapp_meta(
 
             response = await client.post(url, json=payload, headers=headers)
 
-            if response.status_code == 200:
+            if 200 <= response.status_code < 300:
                 data = response.json()
                 message_id = data.get('messages', [{}])[0].get('id')
 

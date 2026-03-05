@@ -1,78 +1,48 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
-import {
-  LayoutDashboard, Building2, Target, Upload, Sparkles,
-  Send, BarChart3, Settings, FileText, MessageSquare
-} from 'lucide-react'
-import Dashboard from './pages/Dashboard'
-import Companies from './pages/Companies'
-import CompanyDetail from './pages/CompanyDetail'
+import { NavLink, Route, Routes } from 'react-router-dom'
+import { History, PlayCircle, Target } from 'lucide-react'
+import RunStatus from './pages/RunStatus'
 import Leads from './pages/Leads'
-import LeadsBoard from './pages/LeadsBoard'
-import Import from './pages/Import'
-import Enrichment from './pages/Enrichment'
-import Outreach from './pages/Outreach'
 import OutreachHistory from './pages/OutreachHistory'
-import Templates from './pages/Templates'
-import Campaigns from './pages/Campaigns'
-import Analytics from './pages/Analytics'
-import SettingsPage from './pages/Settings'
 
-const nav = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/companies', icon: Building2, label: 'Companies' },
-  { to: '/leads', icon: Target, label: 'Leads' },
-  { to: '/import', icon: Upload, label: 'Import Data' },
-  { to: '/enrichment', icon: Sparkles, label: 'Enrichment' },
-  { to: '/outreach', icon: Send, label: 'Outreach' },
-  { to: '/templates', icon: FileText, label: 'Templates' },
-  { to: '/campaigns', icon: MessageSquare, label: 'Campaigns' },
-  { to: '/analytics', icon: BarChart3, label: 'Analytics' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+const navItems = [
+  { to: '/', label: 'Run & Status', icon: PlayCircle },
+  { to: '/leads', label: 'Leads', icon: Target },
+  { to: '/outreach/history', label: 'Outreach History', icon: History },
 ]
 
 export default function App() {
   return (
-    <div className="flex h-screen bg-gray-50">
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900">Georgian Leads</h1>
-          <p className="text-xs text-gray-500">B2B Platform</p>
+    <div className="min-h-screen flex flex-col">
+      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-900">
+        <div className="mx-auto flex h-14 w-full max-w-screen-2xl items-center gap-6 px-4">
+          <div className="text-lg font-bold tracking-tight text-blue-400">Georgian Leads</div>
+          <nav className="flex items-center gap-1">
+            {navItems.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) =>
+                  `flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'
+                  }`
+                }
+              >
+                <Icon size={15} />
+                {label}
+              </NavLink>
+            ))}
+          </nav>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {nav.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-y-auto">
+      </header>
+
+      <main className="mx-auto w-full max-w-screen-2xl flex-1 px-4 py-6">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/companies" element={<Companies />} />
-          <Route path="/companies/:id" element={<CompanyDetail />} />
+          <Route path="/" element={<RunStatus />} />
           <Route path="/leads" element={<Leads />} />
-          <Route path="/leads/board" element={<LeadsBoard />} />
-          <Route path="/import" element={<Import />} />
-          <Route path="/enrichment" element={<Enrichment />} />
-          <Route path="/outreach" element={<Outreach />} />
           <Route path="/outreach/history" element={<OutreachHistory />} />
-          <Route path="/templates" element={<Templates />} />
-          <Route path="/campaigns" element={<Campaigns />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>

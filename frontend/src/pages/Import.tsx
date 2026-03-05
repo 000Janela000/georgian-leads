@@ -1,17 +1,19 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { ImportResponse, PipelineResponse } from '../lib/types'
 
 export default function Import() {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<ImportResponse | null>(null)
   const [error, setError] = useState('')
   const [fetching, setFetching] = useState(false)
-  const [fetchResult, setFetchResult] = useState<any>(null)
+  const [fetchResult, setFetchResult] = useState<ImportResponse | null>(null)
   const [pipelineRunning, setPipelineRunning] = useState(false)
-  const [pipelineResult, setPipelineResult] = useState<any>(null)
+  const [pipelineResult, setPipelineResult] = useState<PipelineResponse | null>(null)
   const [tiLoading, setTiLoading] = useState(false)
-  const [tiResult, setTiResult] = useState<any>(null)
+  const [tiResult, setTiResult] = useState<ImportResponse | null>(null)
 
   const handleUpload = async () => {
     if (!file) return
@@ -21,8 +23,8 @@ export default function Import() {
     try {
       const res = await api.importFile(file)
       setResult(res)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError, 'Upload failed'))
     }
     setUploading(false)
   }
@@ -34,8 +36,8 @@ export default function Import() {
     try {
       const res = await api.autoFetch()
       setFetchResult(res)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (fetchError) {
+      setError(getErrorMessage(fetchError, 'Fetch failed'))
     }
     setFetching(false)
   }
@@ -47,8 +49,8 @@ export default function Import() {
     try {
       const res = await api.fullPipeline(20)
       setPipelineResult(res)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (pipelineError) {
+      setError(getErrorMessage(pipelineError, 'Pipeline failed'))
     }
     setPipelineRunning(false)
   }
@@ -60,8 +62,8 @@ export default function Import() {
     try {
       const res = await api.importTiGeorgia()
       setTiResult(res)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (tiError) {
+      setError(getErrorMessage(tiError, 'TI Georgia import failed'))
     }
     setTiLoading(false)
   }

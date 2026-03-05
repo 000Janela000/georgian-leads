@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { Stats } from '../lib/types'
 
-export default function Analytics() {
-  const [stats, setStats] = useState<any>(null)
+interface BarProps {
+  label: string
+  value: number
+  max: number
+  color: string
+}
 
-  useEffect(() => {
-    api.getStats().then(setStats).catch(() => {})
-  }, [])
-
-  if (!stats) return <div className="p-8 text-gray-500">Loading...</div>
-
-  const total = stats.total_companies || 1
-  const withWeb = stats.companies_with_website
-  const withoutWeb = stats.companies_without_website
-  const conversionRate = total > 0 ? ((stats.converted / total) * 100).toFixed(1) : '0'
-  const enrichedPct = total > 0 ? ((stats.financial_data_available / total) * 100).toFixed(0) : '0'
-
-  const Bar = ({ label, value, max, color }: { label: string; value: number; max: number; color: string }) => (
+function Bar({ label, value, max, color }: BarProps) {
+  return (
     <div className="mb-3">
       <div className="flex justify-between text-sm mb-1">
         <span className="text-gray-600">{label}</span>
@@ -27,6 +22,29 @@ export default function Analytics() {
       </div>
     </div>
   )
+}
+
+export default function Analytics() {
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.getStats().then(data => {
+      setStats(data)
+      setError('')
+    }).catch(fetchError => {
+      setError(getErrorMessage(fetchError, 'Failed to load analytics'))
+    })
+  }, [])
+
+  if (error) return <div className="p-8 text-red-500">{error}</div>
+  if (!stats) return <div className="p-8 text-gray-500">Loading...</div>
+
+  const total = stats.total_companies || 1
+  const withWeb = stats.companies_with_website
+  const withoutWeb = stats.companies_without_website
+  const conversionRate = total > 0 ? ((stats.converted / total) * 100).toFixed(1) : '0'
+  const enrichedPct = total > 0 ? ((stats.financial_data_available / total) * 100).toFixed(0) : '0'
 
   return (
     <div className="p-8 max-w-4xl">

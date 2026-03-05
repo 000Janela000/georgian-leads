@@ -33,6 +33,9 @@ class Company(Base):
 
     lead_status = Column(String(50), default="new")  # new, contacted, replied, not_interested, converted
     priority = Column(String(50), default="low")  # low, medium, high
+    lead_score = Column(Integer, default=0)
+    offer_lane = Column(String(50), default="landing_page")  # landing_page, full_website
+    revenue_type = Column(String(50), default="unknown")  # exact, estimated, unknown
     tags = Column(JSON, default=list)
     notes = Column(Text, nullable=True)
 
@@ -87,3 +90,17 @@ class Setting(Base):
 
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=True)
+
+
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(20), default="queued")  # queued, running, done, error
+    progress_pct = Column(Integer, default=0)
+    current_step = Column(String(255), nullable=True)
+    counters_json = Column(JSON, default=dict)
+    error_text = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

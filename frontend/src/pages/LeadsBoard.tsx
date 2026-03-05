@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { Company, LeadStatus } from '../lib/types'
 
 const COLUMNS = [
   { key: 'new', label: 'New', color: 'border-blue-400' },
@@ -8,27 +10,36 @@ const COLUMNS = [
   { key: 'replied', label: 'Replied', color: 'border-purple-400' },
   { key: 'converted', label: 'Converted', color: 'border-green-400' },
   { key: 'not_interested', label: 'Not Interested', color: 'border-gray-400' },
-]
+] as const
 
 export default function LeadsBoard() {
-  const [leads, setLeads] = useState<any[]>([])
+  const [leads, setLeads] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    api.getLeads({ limit: 500 }).then(setLeads).catch(() => {}).finally(() => setLoading(false))
+    api.getLeads({ limit: 500 }).then(data => {
+      setLeads(data)
+      setError('')
+    }).catch(fetchError => {
+      setError(getErrorMessage(fetchError, 'Failed to load leads board'))
+    }).finally(() => setLoading(false))
   }, [])
 
-  const updateStatus = async (id: number, status: string) => {
+  const updateStatus = async (id: number, status: LeadStatus) => {
     try {
       await api.updateCompany(id, { lead_status: status })
       setLeads(prev => prev.map(l => l.id === id ? { ...l, lead_status: status } : l))
-    } catch { }
+    } catch (updateError) {
+      setError(getErrorMessage(updateError, 'Failed to update lead status'))
+    }
   }
 
   if (loading) return <div className="p-8 text-gray-500">Loading...</div>
 
   return (
     <div className="p-8">
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Leads Board</h1>
         <Link to="/leads" className="px-3 py-1.5 bg-white border rounded-lg text-sm hover:bg-gray-50">List View</Link>
@@ -47,9 +58,9 @@ export default function LeadsBoard() {
                 {items.map(lead => (
                   <div key={lead.id} className="bg-white rounded-lg p-3 shadow-sm">
                     <Link to={`/companies/${lead.id}`} className="font-medium text-sm text-blue-600 hover:underline">
-                      {lead.name_en || lead.name_ka}
+                      {lead.name_en || lead.name_ge}
                     </Link>
-                    {lead.revenue && <p className="text-xs text-gray-500 mt-1">{(lead.revenue / 1_000_000).toFixed(1)}M GEL</p>}
+                    {lead.revenue_gel && <p className="text-xs text-gray-500 mt-1">{(lead.revenue_gel / 1_000_000).toFixed(1)}M GEL</p>}
                     <div className="mt-2 flex gap-1 flex-wrap">
                       {COLUMNS.filter(c => c.key !== col.key).map(c => (
                         <button

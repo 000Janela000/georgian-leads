@@ -10,50 +10,64 @@ Much richer than OpenSanctions and doesn't require scraping an Angular SPA.
 import httpx
 import json
 import logging
+import os
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.models import Company
-from datetime import datetime
+from app.services.source_meta import set_source_meta
 
 logger = logging.getLogger(__name__)
 
-# TI Georgia GitHub raw URLs for corporate data
-TI_GEORGIA_BASE = "https://raw.githubusercontent.com/tigeorgia/corporate-data/master"
-TI_CORP_URL = f"{TI_GEORGIA_BASE}/corporations.json"
+# TI Georgia corporate data URLs (historical + configurable fallback)
+TI_CORP_URL_CANDIDATES = [
+    os.getenv("TI_GEORGIA_URL", "").strip(),
+    "https://raw.githubusercontent.com/tigeorgia/corporate-data/master/corporations.json",
+    "https://raw.githubusercontent.com/tigeorgia/corporate-data/main/corporations.json",
+    "https://raw.githubusercontent.com/Transparency-International-Georgia/corporate-data/master/corporations.json",
+    "https://raw.githubusercontent.com/Transparency-International-Georgia/corporate-data/main/corporations.json",
+]
+TI_CORP_URL_CANDIDATES = [u for u in TI_CORP_URL_CANDIDATES if u]
+TI_CORP_URL = TI_CORP_URL_CANDIDATES[0] if TI_CORP_URL_CANDIDATES else ""
 
 
-async def download_ti_georgia_json(url: str = TI_CORP_URL) -> List[Dict]:
+async def download_ti_georgia_json(url: Optional[str] = None) -> List[Dict]:
     """
     Download TI Georgia corporate data JSON from GitHub.
     Returns list of company dicts.
     """
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            logger.info(f"Downloading TI Georgia data from {url}...")
-            r = await client.get(url)
-            r.raise_for_status()
+    candidates: List[str] = []
+    if url:
+        candidates.append(url)
+    candidates.extend(TI_CORP_URL_CANDIDATES)
+    # Keep order, remove duplicates
+    candidates = list(dict.fromkeys([u for u in candidates if u]))
 
-            data = r.json()
-            if isinstance(data, list):
-                logger.info(f"Downloaded {len(data)} records")
-                return data
-            elif isinstance(data, dict):
-                # Some files wrap data in a key
-                for key in ("corporations", "data", "results"):
-                    if key in data and isinstance(data[key], list):
-                        logger.info(f"Downloaded {len(data[key])} records (from '{key}' key)")
-                        return data[key]
-                # Single record
-                return [data]
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for candidate in candidates:
+            try:
+                logger.info(f"Downloading TI Georgia data from {candidate}...")
+                r = await client.get(candidate)
+                r.raise_for_status()
 
-            return []
+                data = r.json()
+                if isinstance(data, list):
+                    logger.info(f"Downloaded {len(data)} records")
+                    return data
+                if isinstance(data, dict):
+                    for key in ("corporations", "data", "results"):
+                        if key in data and isinstance(data[key], list):
+                            logger.info(f"Downloaded {len(data[key])} records (from '{key}' key)")
+                            return data[key]
+                    return [data]
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"HTTP error on TI Georgia URL {candidate}: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"Error downloading TI Georgia data from {candidate}: {e}")
+                continue
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error downloading TI Georgia data: {e}")
-        return []
-    except Exception as e:
-        logger.error(f"Error downloading TI Georgia data: {e}")
-        return []
+    logger.error("TI Georgia data unavailable on all configured URLs")
+    return []
 
 
 def parse_ti_georgia_company(record: Dict) -> Optional[Dict]:
@@ -121,16 +135,23 @@ def parse_ti_georgia_company(record: Dict) -> Optional[Dict]:
     }
 
 
-async def import_ti_georgia(db: Session, url: str = TI_CORP_URL) -> Dict:
+async def import_ti_georgia(db: Session, url: Optional[str] = None) -> Dict:
     """
     Download and import TI Georgia corporate data.
     Merges with existing companies by identification_code.
 
     Returns: {imported, updated, skipped, errors, total}
     """
-    records = await download_ti_georgia_json(url)
+    records = await download_ti_georgia_json(url=url)
     if not records:
-        return {"imported": 0, "updated": 0, "skipped": 0, "errors": 0, "total": 0}
+        return {
+            "imported": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": 0,
+            "total": 0,
+            "source_unavailable": True,
+        }
 
     imported = 0
     updated = 0
@@ -175,6 +196,12 @@ async def import_ti_georgia(db: Session, url: str = TI_CORP_URL) -> Dict:
                     changed = True
 
                 if changed:
+                    set_source_meta(
+                        existing,
+                        key="registry_source",
+                        source="ti_georgia",
+                        confidence="high",
+                    )
                     updated += 1
                 else:
                     skipped += 1
@@ -192,6 +219,12 @@ async def import_ti_georgia(db: Session, url: str = TI_CORP_URL) -> Dict:
                     status="active",
                     website_status="unknown",
                     lead_status="new",
+                )
+                set_source_meta(
+                    company,
+                    key="registry_source",
+                    source="ti_georgia",
+                    confidence="high",
                 )
                 db.add(company)
                 imported += 1
@@ -240,7 +273,14 @@ async def import_ti_georgia_file(file_path: str, db: Session) -> Dict:
         raise ValueError(f"Failed to parse file: {e}")
 
     if not records:
-        return {"imported": 0, "updated": 0, "skipped": 0, "errors": 0, "total": 0}
+        return {
+            "imported": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": 0,
+            "total": 0,
+            "source_unavailable": True,
+        }
 
     # Reuse the same import logic
     imported = 0
@@ -275,6 +315,12 @@ async def import_ti_georgia_file(file_path: str, db: Session) -> Dict:
                     changed = True
 
                 if changed:
+                    set_source_meta(
+                        existing,
+                        key="registry_source",
+                        source="ti_georgia",
+                        confidence="high",
+                    )
                     updated += 1
                 else:
                     skipped += 1
@@ -291,6 +337,12 @@ async def import_ti_georgia_file(file_path: str, db: Session) -> Dict:
                     status="active",
                     website_status="unknown",
                     lead_status="new",
+                )
+                set_source_meta(
+                    company,
+                    key="registry_source",
+                    source="ti_georgia",
+                    confidence="high",
                 )
                 db.add(company)
                 imported += 1

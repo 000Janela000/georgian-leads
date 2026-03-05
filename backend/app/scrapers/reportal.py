@@ -78,6 +78,7 @@ async def get_company_profile(identification_code: str) -> Optional[Dict]:
             return {
                 "identification_code": data.get("id_code", ""),
                 "name": data.get("name", ""),
+                "category": data.get("category", ""),
                 "legal_form": data.get("form", ""),
                 "activity": data.get("activity", ""),
                 "address": data.get("address", ""),

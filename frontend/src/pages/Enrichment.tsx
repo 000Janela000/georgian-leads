@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { EnrichmentBatchResponse } from '../lib/types'
 
 export default function Enrichment() {
-  const [mode, setMode] = useState<'leads' | 'single' | 'batch'>('leads')
+  const [mode, setMode] = useState<'leads' | 'single'>('leads')
   const [limit, setLimit] = useState(10)
   const [companyId, setCompanyId] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<EnrichmentBatchResponse | null>(null)
   const [error, setError] = useState('')
 
   const run = async () => {
@@ -21,15 +23,15 @@ export default function Enrichment() {
         const res = await api.enrichBatch({ limit })
         setResult(res)
       }
-    } catch (e: any) {
-      setError(e.message)
+    } catch (enrichError) {
+      setError(getErrorMessage(enrichError, 'Enrichment failed'))
     }
     setLoading(false)
   }
 
-  const websitesFound = result?.results?.filter((r: any) => r.website_found).length || 0
-  const socialFound = result?.results?.filter((r: any) => Object.keys(r.social_profiles || {}).length > 0).length || 0
-  const highPriority = result?.results?.filter((r: any) => r.priority === 'high').length || 0
+  const websitesFound = result?.results?.filter(r => r.website_found).length || 0
+  const socialFound = result?.results?.filter(r => Object.keys(r.social_profiles || {}).length > 0).length || 0
+  const highPriority = result?.results?.filter(r => r.priority === 'high').length || 0
 
   return (
     <div className="p-8 max-w-2xl">
@@ -80,7 +82,7 @@ export default function Enrichment() {
             {result.results && result.results.length > 0 && (
               <div className="p-4 bg-gray-50 border rounded-lg text-sm max-h-64 overflow-y-auto">
                 <p className="font-medium text-gray-700 mb-2">Details</p>
-                {result.results.map((r: any, i: number) => (
+                {result.results.map((r, i) => (
                   <div key={i} className="py-1 border-b border-gray-200 last:border-0 flex justify-between">
                     <span className="text-gray-600">#{r.company_id}</span>
                     <span className={`font-medium ${r.priority === 'high' ? 'text-red-600' : r.priority === 'medium' ? 'text-yellow-600' : 'text-gray-500'}`}>

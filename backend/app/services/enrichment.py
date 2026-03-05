@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 from app.models import Company
 from app.scrapers.web_checker import find_website
 from app.scrapers.social_finder import find_all_social_profiles
-from app.scrapers.reportal import get_company_profile, calculate_priority_score
+from app.scrapers.reportal import get_company_profile
+from app.services.lead_scoring import apply_scoring_to_company
+from app.services.source_meta import set_source_meta, ensure_financial_data_dict
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,9 @@ async def enrich_company(company_id: int, db: Session) -> dict:
             'social_profiles': {},
             'reportal_data': None,
             'priority': 'medium',
+            'score': 0,
+            'offer_lane': 'landing_page',
+            'revenue_type': 'unknown',
             'status': 'success',
             'message': 'Enrichment complete'
         }
@@ -55,6 +60,12 @@ async def enrich_company(company_id: int, db: Session) -> dict:
             if website_result['status'] == 'found':
                 company.website_url = website_result['url']
                 company.website_status = 'found'
+                set_source_meta(
+                    company,
+                    key="website_source",
+                    source="domain_validation",
+                    confidence="high",
+                )
                 result['website_found'] = True
                 result['website_url'] = website_result['url']
                 logger.info(f"  Website found: {website_result['url']}")
@@ -75,6 +86,12 @@ async def enrich_company(company_id: int, db: Session) -> dict:
                     if profile.get("website") and not company.website_url:
                         company.website_url = profile["website"]
                         company.website_status = 'found'
+                        set_source_meta(
+                            company,
+                            key="website_source",
+                            source="reportal_public_profile",
+                            confidence="high",
+                        )
                         result['website_found'] = True
                         result['website_url'] = profile["website"]
                         logger.info(f"  Website from reportal: {profile['website']}")
@@ -90,8 +107,24 @@ async def enrich_company(company_id: int, db: Session) -> dict:
                     if profile.get("legal_form") and not company.legal_form:
                         company.legal_form = profile["legal_form"]
 
-                    # Store full profile as financial data JSON
-                    company.financial_data_json = profile
+                    # Merge reportal data into financial_data_json
+                    data = ensure_financial_data_dict(company)
+                    for k, v in profile.items():
+                        data[k] = v
+                    company.financial_data_json = data
+                    set_source_meta(
+                        company,
+                        key="social_source",
+                        source="reportal_public_profile",
+                        confidence="medium",
+                    )
+                    if profile.get("category"):
+                        set_source_meta(
+                            company,
+                            key="revenue_source",
+                            source="reportal_category_estimate",
+                            confidence="medium",
+                        )
                     result['reportal_data'] = profile
                     category = profile.get("category", "")
                     logger.info(f"  Reportal profile loaded (activity: {profile.get('activity', 'N/A')})")
@@ -111,6 +144,12 @@ async def enrich_company(company_id: int, db: Session) -> dict:
                 company.instagram_url = social_profiles.get('instagram')
                 result['social_profiles'] = {k: v for k, v in social_profiles.items() if v}
                 if result['social_profiles']:
+                    set_source_meta(
+                        company,
+                        key="social_source",
+                        source="facebook_instagram_validation",
+                        confidence="medium",
+                    )
                     logger.info(f"  Social found: {list(result['social_profiles'].keys())}")
                 else:
                     logger.info(f"  No social profiles found")
@@ -121,18 +160,22 @@ async def enrich_company(company_id: int, db: Session) -> dict:
 
         # Step 4: Priority scoring
         logger.info(f"  [4/4] Calculating priority...")
-        priority = await calculate_priority_score(
-            revenue=company.revenue_gel,
-            has_website=result['website_found'],
-            has_social=len(result['social_profiles']),
-            category=category,
-        )
-        company.priority = priority
-        result['priority'] = priority
+        scoring = apply_scoring_to_company(company, contact_badge="never_contacted")
+        result['score'] = scoring['score']
+        result['offer_lane'] = scoring['offer_lane']
+        result['revenue_type'] = scoring['revenue_type']
+
+        if scoring['score'] >= 120:
+            company.priority = "high"
+        elif scoring['score'] >= 100:
+            company.priority = "medium"
+        else:
+            company.priority = "low"
+        result['priority'] = company.priority
 
         company.last_enriched_at = datetime.utcnow()
         db.commit()
-        logger.info(f"  Done: priority={priority}")
+        logger.info(f"  Done: priority={company.priority}, score={scoring['score']}")
 
         return result
 
@@ -141,7 +184,7 @@ async def enrich_company(company_id: int, db: Session) -> dict:
         return {'company_id': company_id, 'status': 'error', 'message': str(e)}
 
 
-async def enrich_batch(company_ids: list, db: Session) -> dict:
+async def enrich_batch(company_ids: list, db: Session, progress_callback=None) -> dict:
     """
     Enrich multiple companies with rate limiting.
     """
@@ -161,6 +204,17 @@ async def enrich_batch(company_ids: list, db: Session) -> dict:
             else:
                 failed += 1
 
+            if progress_callback:
+                progress_callback(
+                    {
+                        "processed": idx + 1,
+                        "total": len(company_ids),
+                        "successful": successful,
+                        "failed": failed,
+                        "company_id": company_id,
+                    }
+                )
+
             # Rate limiting: 1 second between companies
             if idx < len(company_ids) - 1:
                 await asyncio.sleep(1)
@@ -173,6 +227,16 @@ async def enrich_batch(company_ids: list, db: Session) -> dict:
                 'status': 'error',
                 'message': str(e)
             })
+            if progress_callback:
+                progress_callback(
+                    {
+                        "processed": idx + 1,
+                        "total": len(company_ids),
+                        "successful": successful,
+                        "failed": failed,
+                        "company_id": company_id,
+                    }
+                )
 
     return {
         'total': len(company_ids),

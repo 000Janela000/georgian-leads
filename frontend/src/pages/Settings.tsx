@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
 
 const fields = [
   { section: 'Email (SMTP)', items: [
@@ -26,7 +27,12 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.getSettings().then(setValues).catch(() => {})
+    api.getSettings().then(data => {
+      setValues(data)
+      setError('')
+    }).catch(fetchError => {
+      setError(getErrorMessage(fetchError, 'Failed to load settings'))
+    })
   }, [])
 
   const handleSave = async () => {
@@ -37,8 +43,8 @@ export default function SettingsPage() {
       await api.saveSettings(values)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, 'Failed to save settings'))
     }
     setSaving(false)
   }

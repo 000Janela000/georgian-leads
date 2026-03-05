@@ -10,8 +10,9 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, SessionLocal
-from app.routers import companies, outreach, templates, stats, import_data, settings
+from app.routers import companies, outreach, templates, stats, import_data, settings, pipeline
 from app.services.templates import seed_default_templates
+from app.services.pipeline_runner import mark_stale_pipeline_runs
 
 load_dotenv()
 
@@ -35,6 +36,12 @@ init_db()
 # Seed default templates on startup
 @app.on_event("startup")
 def startup_event():
+    stale_count = mark_stale_pipeline_runs()
+    if stale_count:
+        logging.getLogger(__name__).warning(
+            "Marked %s stale pipeline run(s) as interrupted after restart",
+            stale_count,
+        )
     db = SessionLocal()
     try:
         seed_default_templates(db)
@@ -48,6 +55,7 @@ app.include_router(templates.router, prefix="/api/templates", tags=["templates"]
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(import_data.router, prefix="/api/import", tags=["import"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 
 
 @app.get("/")

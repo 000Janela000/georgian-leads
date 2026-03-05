@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 
 
 # ========== Company Schemas ==========
@@ -46,6 +46,9 @@ class CompanyResponse(CompanyBase):
     total_assets_gel: Optional[float]
     lead_status: str
     priority: str
+    lead_score: Optional[int] = 0
+    offer_lane: Optional[str] = "landing_page"
+    revenue_type: Optional[str] = "unknown"
     tags: Optional[List[str]]
     last_enriched_at: Optional[datetime]
     created_at: datetime
@@ -121,3 +124,27 @@ class StatsResponse(BaseModel):
     contacted: int
     converted: int
     financial_data_available: int
+
+
+class LeadResponse(CompanyResponse):
+    social_active: bool = False
+    contact_badge: str = "never_contacted"  # never_contacted, tried, contacted_recently
+    score: int = 0
+    revenue_type: str = "unknown"  # exact, estimated, unknown
+    offer_lane: str = "landing_page"  # landing_page, full_website
+    source_meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PipelineRunResponse(BaseModel):
+    id: int
+    status: str
+    progress_pct: int
+    current_step: Optional[str] = None
+    counters_json: Optional[Dict[str, Any]] = None
+    error_text: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

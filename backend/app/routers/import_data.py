@@ -45,6 +45,7 @@ async def import_opensanctions(
                 skipped=result['skipped'],
                 errors=result['errors'],
                 total=result['total'],
+                updated=result.get('updated'),
                 message=f"Successfully imported {result['imported']} companies"
             )
         finally:
@@ -78,6 +79,7 @@ async def import_opensanctions_auto(db: Session = Depends(get_db)):
                 skipped=result['skipped'],
                 errors=result['errors'],
                 total=result['total'],
+                updated=result.get('updated'),
                 message=f"Fetched and imported {result['imported']} companies from registry"
             )
         finally:
@@ -202,6 +204,7 @@ async def full_pipeline(
             skipped=import_result['skipped'],
             errors=import_result['errors'],
             total=import_result['total'],
+            updated=import_result.get('updated'),
             message=f"Imported {import_result['imported']} companies"
         ),
         enrich_message=enrich_msg

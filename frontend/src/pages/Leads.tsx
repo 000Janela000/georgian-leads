@@ -1,114 +1,188 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { ContactBadge, LeadCompany, RevenueType } from '../lib/types'
+
+const badgeStyles: Record<ContactBadge, string> = {
+  never_contacted: 'border border-gray-700 bg-gray-800 text-gray-300',
+  tried: 'border border-amber-700 bg-amber-900/50 text-amber-300',
+  contacted_recently: 'border border-blue-700 bg-blue-900/50 text-blue-300',
+}
+
+const revenueStyles: Record<RevenueType, string> = {
+  exact: 'border border-green-700 bg-green-900/50 text-green-300',
+  estimated: 'border border-yellow-700 bg-yellow-900/50 text-yellow-300',
+  unknown: 'border border-gray-700 bg-gray-800 text-gray-300',
+}
 
 export default function Leads() {
-  const [leads, setLeads] = useState<any[]>([])
-  const [contactedIds, setContactedIds] = useState<Set<number>>(new Set())
+  const [items, setItems] = useState<LeadCompany[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'list' | 'card'>('list')
+  const [error, setError] = useState('')
+
+  const [socialOnly, setSocialOnly] = useState(false)
+  const [revenueType, setRevenueType] = useState<'' | RevenueType>('')
+  const [contactBadge, setContactBadge] = useState<'' | ContactBadge>('')
+  const [includeRecent, setIncludeRecent] = useState(false)
 
   useEffect(() => {
-    Promise.all([
-      api.getLeads({ limit: 200 }),
-      api.getContactedIds(),
-    ]).then(([leadsData, ids]) => {
-      setLeads(leadsData)
-      setContactedIds(new Set(ids))
-    }).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    api.getLeads({
+      limit: 300,
+      social_active_only: socialOnly || undefined,
+      revenue_type: revenueType || undefined,
+      contact_badge: contactBadge || undefined,
+      include_contacted_recently: includeRecent || undefined,
+    })
+      .then(data => {
+        setItems(data)
+        setError('')
+      })
+      .catch(fetchError => setError(getErrorMessage(fetchError, 'Failed to load leads')))
+      .finally(() => setLoading(false))
+  }, [socialOnly, revenueType, contactBadge, includeRecent])
 
-  const priorityColor = (p: string) => {
-    if (p === 'high') return 'bg-red-100 text-red-800'
-    if (p === 'medium') return 'bg-yellow-100 text-yellow-800'
-    return 'bg-gray-100 text-gray-800'
-  }
+  const totals = useMemo(() => {
+    return {
+      total: items.length,
+      socialActive: items.filter(i => i.social_active).length,
+      fullWebsite: items.filter(i => i.offer_lane === 'full_website').length,
+      landingPage: items.filter(i => i.offer_lane === 'landing_page').length,
+    }
+  }, [items])
 
-  const high = leads.filter(l => l.priority === 'high').length
-  const medium = leads.filter(l => l.priority === 'medium').length
-  const low = leads.length - high - medium
-
-  if (loading) return <div className="p-8 text-gray-500">Loading...</div>
+  if (loading) return <div className="text-sm text-gray-500">Loading...</div>
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
-        <div className="flex gap-2">
-          <Link to="/leads/board" className="px-3 py-1.5 bg-white border rounded-lg text-sm hover:bg-gray-50">Board View</Link>
-          <button onClick={() => setView('list')} className={`px-3 py-1.5 rounded-lg text-sm ${view === 'list' ? 'bg-blue-500 text-white' : 'bg-white border'}`}>List</button>
-          <button onClick={() => setView('card')} className={`px-3 py-1.5 rounded-lg text-sm ${view === 'card' ? 'bg-blue-500 text-white' : 'bg-white border'}`}>Cards</button>
+    <div className="space-y-4">
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        <h1 className="text-xl font-bold">No-Website Leads</h1>
+        <p className="mt-1 text-sm text-gray-400">Prioritized by score with social and revenue signals.</p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <StatCard label="Total Leads" value={totals.total} />
+        <StatCard label="Social Active" value={totals.socialActive} />
+        <StatCard label="Full Website Lane" value={totals.fullWebsite} />
+        <StatCard label="Landing Page Lane" value={totals.landingPage} />
+      </div>
+
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input type="checkbox" checked={socialOnly} onChange={e => setSocialOnly(e.target.checked)} />
+            Social active only
+          </label>
+          <label className="text-sm text-gray-300">
+            Revenue type
+            <select
+              value={revenueType}
+              onChange={e => setRevenueType(e.target.value as '' | RevenueType)}
+              className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-100"
+            >
+              <option value="">Any</option>
+              <option value="exact">Exact</option>
+              <option value="estimated">Estimated</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </label>
+          <label className="text-sm text-gray-300">
+            Contact badge
+            <select
+              value={contactBadge}
+              onChange={e => {
+                const nextBadge = e.target.value as '' | ContactBadge
+                setContactBadge(nextBadge)
+                if (nextBadge === 'contacted_recently') {
+                  setIncludeRecent(true)
+                }
+              }}
+              className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-100"
+            >
+              <option value="">Any</option>
+              <option value="never_contacted">Never Contacted</option>
+              <option value="tried">Tried</option>
+              <option value="contacted_recently">Contacted Recently</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input type="checkbox" checked={includeRecent} onChange={e => setIncludeRecent(e.target.checked)} />
+            Include contacted recently
+          </label>
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold">{leads.length}</p>
-          <p className="text-xs text-gray-500">Total Leads</p>
-        </div>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-red-700">{high}</p>
-          <p className="text-xs text-red-600">High Priority</p>
-        </div>
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-700">{medium}</p>
-          <p className="text-xs text-yellow-600">Medium Priority</p>
-        </div>
-        <div className="bg-gray-50 border rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-gray-700">{low}</p>
-          <p className="text-xs text-gray-500">Low Priority</p>
-        </div>
-      </div>
+      {error && <div className="text-sm text-red-400">{error}</div>}
 
-      {view === 'list' ? (
-        <div className="bg-white rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Company</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">ID Code</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Revenue</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Priority</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+      <div className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-800 text-left text-gray-400">
+            <tr>
+              <th className="px-4 py-3 font-medium">Company</th>
+              <th className="px-4 py-3 font-medium">Social</th>
+              <th className="px-4 py-3 font-medium">Revenue</th>
+              <th className="px-4 py-3 font-medium">Score</th>
+              <th className="px-4 py-3 font-medium">Offer Lane</th>
+              <th className="px-4 py-3 font-medium">Contact</th>
+              <th className="px-4 py-3 font-medium">Sources</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(lead => (
+              <tr key={lead.id} className="border-t border-gray-800 hover:bg-gray-800/40">
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-100">{lead.name_en || lead.name_ge || `Company ${lead.id}`}</div>
+                  <div className="text-xs text-gray-500">{lead.identification_code || '-'}</div>
+                </td>
+                <td className="px-4 py-3">
+                  {lead.social_active ? (
+                    <span className="rounded-full border border-green-700 bg-green-900/60 px-2 py-0.5 text-xs font-medium text-green-300">active</span>
+                  ) : (
+                    <span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-400">none</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-gray-200">
+                  <div>{lead.revenue_gel ? `${lead.revenue_gel.toLocaleString()} GEL` : '-'}</div>
+                  <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${revenueStyles[lead.revenue_type]}`}>
+                    {lead.revenue_type}
+                  </span>
+                </td>
+                <td className="px-4 py-3 font-semibold text-gray-100">{lead.score}</td>
+                <td className="px-4 py-3 text-gray-200">{lead.offer_lane === 'full_website' ? 'Full Website' : 'Landing Page'}</td>
+                <td className="px-4 py-3">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badgeStyles[lead.contact_badge]}`}>
+                    {lead.contact_badge.replace('_', ' ')}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(lead.source_meta || {}).slice(0, 3).map(([key, meta]) => (
+                      <span key={key} className="rounded border border-blue-700 bg-blue-900/40 px-1.5 py-0.5 text-xs text-blue-300">
+                        {key}:{meta?.source || 'n/a'}
+                      </span>
+                    ))}
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {leads.map((l: any) => (
-                <tr key={l.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3"><Link to={`/companies/${l.id}`} className="text-blue-600 hover:underline">{l.name_en || l.name_ka}</Link></td>
-                  <td className="px-4 py-3 text-gray-600">{l.identification_code}</td>
-                  <td className="px-4 py-3 text-gray-600">{l.revenue ? `${(l.revenue / 1_000_000).toFixed(1)}M` : '-'}</td>
-                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityColor(l.priority || 'low')}`}>{l.priority || 'low'}</span></td>
-                  <td className="px-4 py-3 flex items-center gap-1.5">
-                    <span className="text-gray-600">{l.lead_status || 'new'}</span>
-                    {contactedIds.has(l.id) && <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">contacted</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {leads.map((l: any) => (
-            <Link key={l.id} to={`/companies/${l.id}`} className="bg-white rounded-lg border p-4 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <h3 className="font-medium text-gray-900">{l.name_en || l.name_ka}</h3>
-                <div className="flex gap-1">
-                  {contactedIds.has(l.id) && <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">contacted</span>}
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityColor(l.priority || 'low')}`}>{l.priority || 'low'}</span>
-                </div>
-              </div>
-              {l.name_ka && l.name_en && <p className="text-xs text-gray-500 mt-1">{l.name_ka}</p>}
-              <div className="mt-3 text-xs text-gray-600 space-y-1">
-                <p>ID: {l.identification_code}</p>
-                {l.revenue && <p>Revenue: {(l.revenue / 1_000_000).toFixed(1)}M GEL</p>}
-                {l.director_name && <p>Director: {l.director_name}</p>}
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+            ))}
+            {!items.length && (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
+                  No leads found for selected filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+      <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-gray-100">{value}</div>
     </div>
   )
 }

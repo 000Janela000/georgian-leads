@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { getErrorMessage } from '../lib/errors'
+import type { SendBulkResponse, TemplateRecord } from '../lib/types'
 
 export default function Campaigns() {
-  const [templates, setTemplates] = useState<any[]>([])
+  const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [channel, setChannel] = useState('email')
   const [templateId, setTemplateId] = useState('')
   const [sending, setSending] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<SendBulkResponse | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.listTemplates().then(setTemplates).catch(() => {})
+    api.listTemplates().then(data => {
+      setTemplates(data)
+      setError('')
+    }).catch(fetchError => {
+      setError(getErrorMessage(fetchError, 'Failed to load templates'))
+    })
   }, [])
 
   const filteredTemplates = templates.filter(t =>
@@ -27,8 +34,8 @@ export default function Campaigns() {
     try {
       const res = await api.sendBulk({ channel, template_id: Number(templateId), get_all_leads: true })
       setResult(res)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (sendError) {
+      setError(getErrorMessage(sendError, 'Failed to send campaign'))
     }
     setSending(false)
   }
@@ -84,6 +91,7 @@ export default function Campaigns() {
             <p className="text-green-700">
               Sent: {result.total_sent || 0} | Failed: {result.total_failed || 0}
               {result.skipped_dedup > 0 && ` | Skipped (already contacted): ${result.skipped_dedup}`}
+              {(result.skipped_missing_contact || 0) > 0 && ` | Skipped (missing contacts): ${result.skipped_missing_contact}`}
             </p>
             {result.message && <p className="text-green-600 mt-1">{result.message}</p>}
           </div>
