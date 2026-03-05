@@ -162,40 +162,67 @@ def _run_pipeline(run_id: int, enrich_limit: int = 100) -> None:
             _update_run(run_id, progress_pct=80, counters_json=counters)
 
         _update_run(run_id, progress_pct=82, current_step="Scoring leads and offer lanes")
-        active_companies = db.query(Company).filter(Company.status == "active").all()
-        contact_map = get_contact_status_map(db, days=30, company_ids=[c.id for c in active_companies])
-        for company in active_companies:
-            badge = contact_map.get(company.id, "never_contacted")
-            scoring = apply_scoring_to_company(company, badge)
-            if scoring["revenue_type"] == "exact":
-                set_source_meta(
-                    company,
-                    key="revenue_source",
-                    source="trusted_numeric_financial",
-                    confidence="high",
-                )
-            elif scoring["revenue_type"] == "estimated":
-                set_source_meta(
-                    company,
-                    key="revenue_source",
-                    source="reportal_category_estimate",
-                    confidence="medium",
-                )
+        contact_map = get_contact_status_map(db, days=30)
+        total_active = db.query(Company).filter(Company.status == "active").count()
+        processed_scoring = 0
+        page_size = 1000
+        last_id = 0
 
-            if scoring["score"] >= 120:
-                company.priority = "high"
-            elif scoring["score"] >= 100:
-                company.priority = "medium"
-            else:
-                company.priority = "low"
+        while True:
+            batch = (
+                db.query(Company)
+                .filter(Company.status == "active", Company.id > last_id)
+                .order_by(Company.id.asc())
+                .limit(page_size)
+                .all()
+            )
+            if not batch:
+                break
 
-            counters["scoring"]["scored"] += 1
-            if scoring["offer_lane"] == "full_website":
-                counters["scoring"]["full_website"] += 1
-            else:
-                counters["scoring"]["landing_page"] += 1
+            for company in batch:
+                badge = contact_map.get(company.id, "never_contacted")
+                scoring = apply_scoring_to_company(company, badge)
+                if scoring["revenue_type"] == "exact":
+                    set_source_meta(
+                        company,
+                        key="revenue_source",
+                        source="trusted_numeric_financial",
+                        confidence="high",
+                    )
+                elif scoring["revenue_type"] == "estimated":
+                    set_source_meta(
+                        company,
+                        key="revenue_source",
+                        source="reportal_category_estimate",
+                        confidence="medium",
+                    )
 
-        db.commit()
+                if scoring["score"] >= 120:
+                    company.priority = "high"
+                elif scoring["score"] >= 100:
+                    company.priority = "medium"
+                else:
+                    company.priority = "low"
+
+                counters["scoring"]["scored"] += 1
+                if scoring["offer_lane"] == "full_website":
+                    counters["scoring"]["full_website"] += 1
+                else:
+                    counters["scoring"]["landing_page"] += 1
+
+                processed_scoring += 1
+
+            last_id = batch[-1].id
+            db.commit()
+
+            progress = 82 + int((processed_scoring / max(total_active, 1)) * 16)
+            _update_run(
+                run_id,
+                progress_pct=min(progress, 98),
+                current_step=f"Scoring leads and offer lanes ({processed_scoring:,}/{total_active:,})",
+                counters_json=counters,
+            )
+
         _update_run(
             run_id,
             status="done",
