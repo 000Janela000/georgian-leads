@@ -1,0 +1,3 @@
+{"id": "ge-company-001", "schema": "Company", "properties": {"name": ["Georgian Tech Company LLC"], "registrationNumber": ["123456789"], "address": ["Tbilisi, Georgia"], "foundedDate": ["2015-01-01"], "legalForm": ["LLC"]}}
+{"id": "ge-company-002", "schema": "Company", "properties": {"name": ["Caucasus Trading"], "registrationNumber": ["987654321"], "address": ["Batumi, Georgia"], "foundedDate": ["2010-06-15"], "legalForm": ["JSC"]}}
+{"id": "ge-company-003", "schema": "Company", "properties": {"name": ["Eastern Logistics"], "registrationNumber": ["456789123"], "address": ["Gori, Georgia"], "foundedDate": ["2018-03-20"], "legalForm": ["LLC"]}}
