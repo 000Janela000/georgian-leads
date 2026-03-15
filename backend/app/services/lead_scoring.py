@@ -38,7 +38,22 @@ def resolve_revenue(company: Company) -> Tuple[Optional[float], str]:
 
 
 def social_active(company: Company) -> bool:
-    return bool(company.facebook_url or company.instagram_url or company.linkedin_url)
+    if not (company.facebook_url or company.instagram_url or company.linkedin_url):
+        return False
+
+    meta = get_source_meta(company).get("social_source")
+    if not isinstance(meta, dict):
+        return False
+
+    source = str(meta.get("source") or "").strip().lower()
+    validation = str(meta.get("validation") or "").strip().lower()
+    if validation == "strict_v2":
+        return True
+
+    if source == "facebook_instagram_validation":
+        return False
+
+    return source == "reportal_public_profile"
 
 
 def compute_score(company: Company, contact_badge: str) -> Tuple[int, str, str]:
@@ -72,7 +87,10 @@ def compute_score(company: Company, contact_badge: str) -> Tuple[int, str, str]:
     if contact_badge == "contacted_recently":
         score -= 40
 
-    offer_lane = "full_website" if score >= 120 else "landing_page"
+    # Revenue-aware lane: without a revenue signal, default to landing page.
+    # This keeps "full website" focused on leads with at least estimated size.
+    has_revenue_signal = revenue_type in {"exact", "estimated"}
+    offer_lane = "full_website" if score >= 120 and has_revenue_signal else "landing_page"
     return max(score, 0), revenue_type, offer_lane
 
 

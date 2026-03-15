@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_
 from app.database import get_db
 from app.models import Company
 from app.schemas import CompanyCreate, CompanyUpdate, CompanyResponse, LeadResponse
@@ -64,15 +64,6 @@ def get_leads_without_website(
         )
     )
 
-    if social_active_only:
-        query = query.filter(
-            or_(
-                Company.facebook_url.isnot(None),
-                Company.instagram_url.isnot(None),
-                Company.linkedin_url.isnot(None),
-            )
-        )
-
     companies = query.all()
     company_ids = [c.id for c in companies]
     contact_map = get_contact_status_map(db, days=days, company_ids=company_ids)
@@ -83,6 +74,10 @@ def get_leads_without_website(
         if not include_contacted_recently and badge == "contacted_recently":
             continue
         if contact_badge and badge != contact_badge:
+            continue
+
+        is_social_active = social_active(company)
+        if social_active_only and not is_social_active:
             continue
 
         score, computed_revenue_type, offer_lane = compute_score(company, badge)
@@ -116,7 +111,7 @@ def get_leads_without_website(
                 "last_enriched_at": company.last_enriched_at,
                 "created_at": company.created_at,
                 "updated_at": company.updated_at,
-                "social_active": social_active(company),
+                "social_active": is_social_active,
                 "contact_badge": badge,
                 "score": score,
                 "source_meta": get_source_meta(company),

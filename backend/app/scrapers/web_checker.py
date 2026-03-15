@@ -81,13 +81,13 @@ def normalize_company_name(name: str) -> List[str]:
         # Remove all non-alphanumeric (keep only letters and digits)
         domain_base = re.sub(r'[^a-z0-9]', '', cleaned)
 
-        if domain_base and len(domain_base) >= 3:
+        if domain_base and len(domain_base) >= 3 and not re.fullmatch(r'\d+', domain_base):
             candidates.add(domain_base[:30])
 
         # Also try keeping hyphens (some domains use them)
         hyphen_base = re.sub(r'[^a-z0-9\-]', '', cleaned.replace(' ', '-'))
         hyphen_base = re.sub(r'-+', '-', hyphen_base).strip('-')
-        if hyphen_base and len(hyphen_base) >= 3 and hyphen_base != domain_base:
+        if hyphen_base and len(hyphen_base) >= 3 and hyphen_base != domain_base and not re.fullmatch(r'[\d\-]+', hyphen_base):
             candidates.add(hyphen_base[:30])
 
     return list(candidates)

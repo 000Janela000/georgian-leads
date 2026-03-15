@@ -5,15 +5,64 @@ No API keys required — uses direct URL checks
 """
 
 import httpx
-import re
 import logging
 import os
 from typing import Dict, Optional
-from urllib.parse import quote_plus
-from app.scrapers.web_checker import transliterate_georgian, normalize_company_name
+from urllib.parse import urlparse
+from app.scrapers.web_checker import normalize_company_name
 
 logger = logging.getLogger(__name__)
 INSECURE_SSL = os.getenv("SCRAPER_INSECURE_SSL", "false").lower() in {"1", "true", "yes", "on"}
+SOCIAL_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+FACEBOOK_ERROR_MARKERS = [
+    "content isn't available",
+    "page isn't available",
+    "you must log in",
+    "log into facebook",
+    # Georgian-language error pages
+    "შინაარსი მიუწვდომელია",   # "content isn't available"
+    "ეს გვერდი მიუწვდომელია",  # "this page isn't available"
+    "ეს გვერდი ვერ მოიძებნა",  # "this page could not be found"
+    "გვერდი ვერ მოიძებნა",     # "page could not be found"
+]
+INSTAGRAM_ERROR_MARKERS = [
+    "sorry, this page isn't available",
+    "the link you followed may be broken",
+    "login",
+]
+RESERVED_HANDLES = {
+    "",
+    "login",
+    "profile.php",
+    "pages",
+    "groups",
+    "watch",
+    "marketplace",
+    "people",
+    "public",
+}
+
+
+def _extract_handle(url: str, domain: str) -> Optional[str]:
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if domain not in host:
+            return None
+        handle = (parsed.path or "").strip("/")
+        if not handle or "/" in handle:
+            return None
+        handle_lower = handle.lower()
+        if handle_lower in RESERVED_HANDLES:
+            return None
+        return handle
+    except Exception:
+        return None
+
+
+def _contains_any(text: str, markers: list[str]) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in markers)
 
 
 async def check_facebook_page(company_name: str, timeout: int = 8) -> Optional[str]:
@@ -43,15 +92,17 @@ async def check_facebook_page(company_name: str, timeout: int = 8) -> Optional[s
     ) as client:
         for url in urls_to_try[:6]:  # Limit checks
             try:
-                r = await client.head(url, headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                })
-                # Facebook returns 200 for existing pages, 404 for non-existent
-                if r.status_code == 200:
-                    # Check we didn't get redirected to login or error page
-                    final_url = str(r.url)
-                    if "/login" not in final_url and "/error" not in final_url:
-                        return url
+                r = await client.get(url, headers={"User-Agent": SOCIAL_UA})
+                if r.status_code != 200:
+                    continue
+                final_url = str(r.url)
+                if "/login" in final_url or "/error" in final_url:
+                    continue
+                if not _extract_handle(final_url, "facebook.com"):
+                    continue
+                if _contains_any(r.text, FACEBOOK_ERROR_MARKERS):
+                    continue
+                return final_url.split("?")[0]
             except Exception:
                 continue
 
@@ -82,13 +133,17 @@ async def check_instagram_page(company_name: str, timeout: int = 8) -> Optional[
     ) as client:
         for url in urls_to_try[:4]:  # Limit checks
             try:
-                r = await client.head(url, headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                })
-                if r.status_code == 200:
-                    final_url = str(r.url)
-                    if "/accounts/login" not in final_url:
-                        return url
+                r = await client.get(url, headers={"User-Agent": SOCIAL_UA})
+                if r.status_code != 200:
+                    continue
+                final_url = str(r.url)
+                if "/accounts/login" in final_url:
+                    continue
+                if not _extract_handle(final_url, "instagram.com"):
+                    continue
+                if _contains_any(r.text, INSTAGRAM_ERROR_MARKERS):
+                    continue
+                return final_url.split("?")[0]
             except Exception:
                 continue
 
@@ -143,9 +198,18 @@ async def validate_social_profile(url: str, timeout: int = 5) -> bool:
 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=not INSECURE_SSL) as client:
-            response = await client.head(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            })
-            return 200 <= response.status_code < 400
+            response = await client.get(url, headers={"User-Agent": SOCIAL_UA})
+            if response.status_code != 200:
+                return False
+            final_url = str(response.url)
+            if "facebook.com" in final_url:
+                return _extract_handle(final_url, "facebook.com") is not None and not _contains_any(
+                    response.text, FACEBOOK_ERROR_MARKERS
+                )
+            if "instagram.com" in final_url:
+                return _extract_handle(final_url, "instagram.com") is not None and not _contains_any(
+                    response.text, INSTAGRAM_ERROR_MARKERS
+                )
+            return False
     except Exception:
         return False

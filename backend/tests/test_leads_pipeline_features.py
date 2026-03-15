@@ -117,6 +117,14 @@ class LeadsAndPipelineTests(unittest.TestCase):
             revenue_gel=600_000,
             facebook_url="https://facebook.com/acme",
             status="active",
+            financial_data_json={
+                "_source_meta": {
+                    "social_source": {
+                        "source": "facebook_instagram_validation",
+                        "validation": "strict_v2",
+                    }
+                }
+            },
         )
         exact_score, exact_type, exact_lane = compute_score(exact_company, "never_contacted")
         self.assertEqual(exact_type, "exact")

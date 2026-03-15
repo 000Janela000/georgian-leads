@@ -110,13 +110,18 @@ async def search_company_list(name: str = "", page: int = 1) -> List[Dict]:
     """
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            # Load main page for session
+            # Load main page for session/cookies
             await client.get(f"{BASE_URL}/en/Reports")
+
+            payload: Dict[str, object] = {"emitent": "1", "page": page}
+            if name:
+                payload["orgName"] = name
 
             r = await client.post(
                 f"{BASE_URL}/en/Reports/List",
-                data={"name": name, "page": str(page)},
+                json=payload,
                 headers={
+                    "Content-Type": "application/json",
                     "X-Requested-With": "XMLHttpRequest",
                     "Referer": f"{BASE_URL}/en/Reports",
                 },
@@ -135,19 +140,21 @@ async def search_company_list(name: str = "", page: int = 1) -> List[Dict]:
 
                 id_code = cells[0].get_text(strip=True)
                 link = cells[1].find("a")
-                name_text = link.get_text(strip=True) if link else ""
+                name_text = link.get_text(strip=True) if link else cells[1].get_text(strip=True)
                 category = cells[2].get_text(strip=True)
                 activity = cells[3].get_text(strip=True)
                 legal_form = cells[4].get_text(strip=True)
 
                 if id_code:
-                    results.append({
-                        "identification_code": id_code,
-                        "name": name_text,
-                        "category": category,  # I, II, III, IV (I = largest)
-                        "activity": activity,
-                        "legal_form": legal_form,
-                    })
+                    results.append(
+                        {
+                            "identification_code": id_code,
+                            "name": name_text,
+                            "category": category,
+                            "activity": activity,
+                            "legal_form": legal_form,
+                        }
+                    )
 
             return results
 

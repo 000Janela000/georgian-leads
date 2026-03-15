@@ -77,10 +77,14 @@ async def enrich_company(company_id: int, db: Session) -> dict:
             company.website_status = 'not_found'
 
         # Step 2: Reportal.ge profile (company data, directors, contact info)
-        if company.identification_code:
+        # Only query reportal if we have a real Georgian ID (9-digit number).
+        # ge-coreg-* IDs are OpenSanctions internal UUIDs — reportal always 404s on them.
+        ic = company.identification_code or ""
+        has_real_id = bool(ic) and not ic.startswith("ge-") and ic.isdigit()
+        if has_real_id:
             try:
                 logger.info(f"  [2/4] Fetching reportal.ge profile...")
-                profile = await get_company_profile(company.identification_code)
+                profile = await get_company_profile(ic)
                 if profile:
                     # Update company with reportal data
                     if profile.get("website") and not company.website_url:
@@ -114,9 +118,9 @@ async def enrich_company(company_id: int, db: Session) -> dict:
                     company.financial_data_json = data
                     set_source_meta(
                         company,
-                        key="social_source",
+                        key="profile_source",
                         source="reportal_public_profile",
-                        confidence="medium",
+                        confidence="high",
                     )
                     if profile.get("category"):
                         set_source_meta(
@@ -133,7 +137,7 @@ async def enrich_company(company_id: int, db: Session) -> dict:
             except Exception as e:
                 logger.warning(f"  Reportal.ge fetch failed: {e}")
         else:
-            logger.info(f"  [2/4] Skipping reportal (no ID code)")
+            logger.info(f"  [2/4] Skipping reportal (no real Georgian ID — have: {ic!r})")
 
         # Step 3: Social media (Facebook, Instagram — free URL checks)
         if not result['website_found']:
@@ -149,6 +153,10 @@ async def enrich_company(company_id: int, db: Session) -> dict:
                         key="social_source",
                         source="facebook_instagram_validation",
                         confidence="medium",
+                        extra={
+                            "validation": "strict_v2",
+                            "platforms": sorted(result["social_profiles"].keys()),
+                        },
                     )
                     logger.info(f"  Social found: {list(result['social_profiles'].keys())}")
                 else:
@@ -215,9 +223,9 @@ async def enrich_batch(company_ids: list, db: Session, progress_callback=None) -
                     }
                 )
 
-            # Rate limiting: 1 second between companies
+            # Rate limiting: keep small delay to avoid hammering endpoints.
             if idx < len(company_ids) - 1:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.2)
 
         except Exception as e:
             logger.error(f"Error in batch enrichment at index {idx}: {e}")

@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -12,13 +14,14 @@ router = APIRouter()
 
 class StartPipelineRequest(BaseModel):
     enrich_limit: int = Field(default=100, ge=1, le=5000)
+    skip_steps: List[str] = Field(default_factory=list)
 
 
 @router.post("/runs", response_model=PipelineRunResponse)
 def create_pipeline_run(
     request: StartPipelineRequest = StartPipelineRequest(),
 ):
-    run = start_pipeline_run(enrich_limit=request.enrich_limit)
+    run = start_pipeline_run(enrich_limit=request.enrich_limit, skip_steps=request.skip_steps)
     return run
 
 
