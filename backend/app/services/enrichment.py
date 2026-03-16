@@ -100,6 +100,9 @@ async def enrich_company(company_id: int, db: Session) -> dict:
                         result['website_url'] = profile["website"]
                         logger.info(f"  Website from reportal: {profile['website']}")
 
+                    if profile.get("phone") and not company.phone:
+                        company.phone = profile["phone"]
+
                     if profile.get("address") and not company.address:
                         company.address = profile["address"]
 
@@ -139,32 +142,12 @@ async def enrich_company(company_id: int, db: Session) -> dict:
         else:
             logger.info(f"  [2/4] Skipping reportal (no real Georgian ID — have: {ic!r})")
 
-        # Step 3: Social media (Facebook, Instagram — free URL checks)
-        if not result['website_found']:
-            try:
-                logger.info(f"  [3/4] Checking social media...")
-                social_profiles = await find_all_social_profiles(company_name)
-                company.facebook_url = social_profiles.get('facebook')
-                company.instagram_url = social_profiles.get('instagram')
-                result['social_profiles'] = {k: v for k, v in social_profiles.items() if v}
-                if result['social_profiles']:
-                    set_source_meta(
-                        company,
-                        key="social_source",
-                        source="facebook_instagram_validation",
-                        confidence="medium",
-                        extra={
-                            "validation": "strict_v2",
-                            "platforms": sorted(result["social_profiles"].keys()),
-                        },
-                    )
-                    logger.info(f"  Social found: {list(result['social_profiles'].keys())}")
-                else:
-                    logger.info(f"  No social profiles found")
-            except Exception as e:
-                logger.warning(f"  Social check failed: {e}")
-        else:
-            logger.info(f"  [3/4] Skipping social (has website)")
+        # Step 3: Social media — disabled.
+        # URL-guessing from transliterated names produces false positives (random personal
+        # profiles that happen to match the handle). No verification that the page belongs
+        # to the company is possible without an API key. Leave facebook_url/instagram_url
+        # empty; populate manually or from a verified source.
+        logger.info(f"  [3/4] Skipping social (guessing disabled — too many false positives)")
 
         # Step 4: Priority scoring
         logger.info(f"  [4/4] Calculating priority...")

@@ -297,6 +297,7 @@ class SendBulkRequest(BaseModel):
     template_id: Optional[int] = None
     custom_body: Optional[str] = None
     get_all_leads: bool = False  # If true, send to all leads (no website)
+    source: Optional[str] = None  # Filter by source: 'registry', 'local', or None for all
 
 
 @router.post("/send/bulk")
@@ -326,10 +327,13 @@ async def send_bulk_messages(
 
     # Get companies to send to
     if request.get_all_leads:
-        companies = db.query(Company).filter(
+        q = db.query(Company).filter(
             Company.website_status == 'not_found',
             Company.status == 'active'
-        ).all()
+        )
+        if request.source:
+            q = q.filter(Company.source == request.source)
+        companies = q.all()
     elif request.company_ids:
         companies = db.query(Company).filter(Company.id.in_(request.company_ids)).all()
     else:

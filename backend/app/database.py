@@ -46,6 +46,11 @@ def _apply_sqlite_migrations():
             "lead_score": "INTEGER DEFAULT 0",
             "offer_lane": "VARCHAR(50) DEFAULT 'landing_page'",
             "revenue_type": "VARCHAR(50) DEFAULT 'unknown'",
+            "phone": "VARCHAR(100)",
+            "email": "VARCHAR(255)",
+            "country": "VARCHAR(50) DEFAULT 'GE'",
+            "source": "VARCHAR(50) DEFAULT 'registry'",
+            "category": "VARCHAR(100)",
         },
     }
 
@@ -58,3 +63,20 @@ def _apply_sqlite_migrations():
                     conn.execute(
                         text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_type}")
                     )
+
+        rows = conn.execute(text("PRAGMA user_version")).fetchone()
+        db_version = rows[0] if rows else 0
+
+        if db_version < 1:
+            # Clear social URLs that were guessed from name transliteration (false positives).
+            conn.execute(text(
+                "UPDATE companies SET facebook_url = NULL, instagram_url = NULL "
+                "WHERE source = 'georgia_registry'"
+            ))
+            conn.execute(text("PRAGMA user_version = 1"))
+
+        if db_version < 2:
+            # Rename legacy source values to new canonical names.
+            conn.execute(text("UPDATE companies SET source = 'registry' WHERE source = 'georgia_registry'"))
+            conn.execute(text("UPDATE companies SET source = 'local' WHERE source = 'osm'"))
+            conn.execute(text("PRAGMA user_version = 2"))

@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from app.models import Template
 
 
-GEORGIAN_EMAIL_TEMPLATE = {
-    'name': 'Georgian - Web Development Offer (Email)',
+KA_EMAIL_TEMPLATE = {
+    'name': 'ka - Web Development Offer (Email)',
     'language': 'ka',
     'channel': 'email',
     'subject': 'ვებ-გვერდის განვითარება - თქვენი ბიზნესისთვის',
@@ -35,8 +35,8 @@ GEORGIAN_EMAIL_TEMPLATE = {
     'is_default': True
 }
 
-GEORGIAN_WHATSAPP_TEMPLATE = {
-    'name': 'Georgian - Web Development Offer (WhatsApp)',
+KA_WHATSAPP_TEMPLATE = {
+    'name': 'ka - Web Development Offer (WhatsApp)',
     'language': 'ka',
     'channel': 'whatsapp',
     'subject': None,
@@ -59,13 +59,13 @@ GEORGIAN_WHATSAPP_TEMPLATE = {
 }
 
 ENGLISH_EMAIL_TEMPLATE = {
-    'name': 'English - Web Development Offer (Email)',
+    'name': 'en - Web Development Offer (Email)',
     'language': 'en',
     'channel': 'email',
     'subject': 'Professional Website Development for [Company Name]',
     'body': '''Hello,
 
-I'm [Name], a professional web developer specializing in building modern websites for Georgian businesses.
+I'm [Name], a professional web developer specializing in building modern websites for local businesses.
 
 I noticed that [Company Name] doesn't currently have a professional online presence. In today's market, a strong website is essential for growth and credibility.
 
@@ -93,7 +93,7 @@ Best regards,
 }
 
 ENGLISH_WHATSAPP_TEMPLATE = {
-    'name': 'English - Web Development Offer (WhatsApp)',
+    'name': 'en - Web Development Offer (WhatsApp)',
     'language': 'en',
     'channel': 'whatsapp',
     'subject': None,
@@ -120,14 +120,13 @@ Talk soon!
 def seed_default_templates(db: Session):
     """Seed default message templates into database"""
     templates_data = [
-        GEORGIAN_EMAIL_TEMPLATE,
-        GEORGIAN_WHATSAPP_TEMPLATE,
+        KA_EMAIL_TEMPLATE,
+        KA_WHATSAPP_TEMPLATE,
         ENGLISH_EMAIL_TEMPLATE,
-        ENGLISH_WHATSAPP_TEMPLATE
+        ENGLISH_WHATSAPP_TEMPLATE,
     ]
 
     for template_data in templates_data:
-        # Check if template already exists
         existing = db.query(Template).filter(
             Template.name == template_data['name']
         ).first()

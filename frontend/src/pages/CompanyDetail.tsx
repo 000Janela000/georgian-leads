@@ -1,19 +1,14 @@
 import { type ReactNode, useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { getErrorMessage } from '../lib/errors'
 import type { Company } from '../lib/types'
 
-interface FieldRowProps {
-  label: string
-  value: ReactNode
-}
-
-function FieldRow({ label, value }: FieldRowProps) {
+function FieldRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs text-gray-500 uppercase tracking-wide">{label}</dt>
-      <dd className="text-sm text-gray-900 mt-0.5">{value ?? '-'}</dd>
+      <dt className="text-xs uppercase tracking-wide text-gray-500">{label}</dt>
+      <dd className="mt-0.5 text-sm text-gray-200">{value ?? <span className="text-gray-600">—</span>}</dd>
     </div>
   )
 }
@@ -26,10 +21,7 @@ export default function CompanyDetail() {
 
   useEffect(() => {
     if (!id) return
-
-    api.getCompany(Number(id)).then(setCompany).catch(fetchError => {
-      setError(getErrorMessage(fetchError, 'Company not found'))
-    })
+    api.getCompany(Number(id)).then(setCompany).catch(e => setError(getErrorMessage(e, 'Company not found')))
   }, [id])
 
   const updateField = async (field: string, value: unknown) => {
@@ -39,8 +31,8 @@ export default function CompanyDetail() {
       const updated = await api.updateCompany(company.id, { [field]: value })
       setCompany(updated)
       setError('')
-    } catch (updateError) {
-      setError(getErrorMessage(updateError, 'Failed to save changes'))
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to save changes'))
     } finally {
       setSaving(false)
     }
@@ -48,49 +40,56 @@ export default function CompanyDetail() {
 
   const enrichCompany = async () => {
     if (!company) return
-
     setSaving(true)
     try {
       await api.enrichCompany(company.id)
       const refreshed = await api.getCompany(company.id)
       setCompany(refreshed)
       setError('')
-    } catch (enrichError) {
-      setError(getErrorMessage(enrichError, 'Enrichment failed'))
+    } catch (e) {
+      setError(getErrorMessage(e, 'Enrichment failed'))
     } finally {
       setSaving(false)
     }
   }
 
-  if (error) return <div className="p-8 text-red-500">{error}</div>
-  if (!company) return <div className="p-8 text-gray-500">Loading...</div>
+  if (error) return <div className="text-sm text-red-400">{error}</div>
+  if (!company) return <div className="text-sm text-gray-500">Loading…</div>
 
   return (
-    <div className="p-8 max-w-4xl">
-      <Link to="/companies" className="text-sm text-blue-600 hover:underline mb-4 inline-block">&larr; Back to Companies</Link>
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{company.name_en || company.name_ge}</h1>
-          {company.name_ge && company.name_en && <p className="text-gray-500">{company.name_ge}</p>}
-        </div>
-        <select
-          value={company.lead_status || 'new'}
-          onChange={e => updateField('lead_status', e.target.value)}
-          className="px-3 py-1.5 border rounded-lg text-sm"
+    <div className="max-w-4xl space-y-5">
+      <div>
+        <button
+          onClick={() => window.history.back()}
+          className="mb-3 text-sm text-gray-500 hover:text-gray-300"
         >
-          <option value="new">New</option>
-          <option value="contacted">Contacted</option>
-          <option value="replied">Replied</option>
-          <option value="converted">Converted</option>
-          <option value="not_interested">Not Interested</option>
-        </select>
+          ← Back
+        </button>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white">{company.name_en || company.name_ge}</h1>
+            {company.name_ge && company.name_en && <p className="mt-0.5 text-sm text-gray-400">{company.name_ge}</p>}
+          </div>
+          <select
+            value={company.lead_status || 'new'}
+            onChange={e => updateField('lead_status', e.target.value)}
+            className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-100 focus:outline-none"
+          >
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="replied">Replied</option>
+            <option value="converted">Converted</option>
+            <option value="not_interested">Not Interested</option>
+          </select>
+        </div>
+        {saving && <p className="mt-1 text-xs text-blue-400">Saving…</p>}
       </div>
 
-      {saving && <p className="text-xs text-blue-600 mb-2">Saving...</p>}
+      {error && <p className="text-sm text-red-400">{error}</p>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg border p-5 space-y-4">
-          <h2 className="font-semibold text-gray-900">Company Info</h2>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-gray-300">Company Info</h2>
           <dl className="grid grid-cols-2 gap-4">
             <FieldRow label="ID Code" value={company.identification_code} />
             <FieldRow label="Legal Form" value={company.legal_form} />
@@ -103,44 +102,50 @@ export default function CompanyDetail() {
           </dl>
         </div>
 
-        <div className="bg-white rounded-lg border p-5 space-y-4">
-          <h2 className="font-semibold text-gray-900">Online Presence</h2>
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-gray-300">Contact & Online</h2>
           <dl className="grid grid-cols-1 gap-4">
-            <FieldRow label="Website" value={company.website_url ? <a href={company.website_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{company.website_url}</a> : `Status: ${company.website_status || 'unknown'}`} />
+            <FieldRow label="Phone" value={company.phone} />
+            <FieldRow label="Email" value={company.email} />
+            <FieldRow label="Website" value={company.website_url
+              ? <a href={company.website_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{company.website_url}</a>
+              : `Status: ${company.website_status || 'unknown'}`}
+            />
             <FieldRow label="Facebook" value={company.facebook_url} />
             <FieldRow label="Instagram" value={company.instagram_url} />
-            <FieldRow label="LinkedIn" value={company.linkedin_url} />
           </dl>
         </div>
 
-        <div className="bg-white rounded-lg border p-5 space-y-4">
-          <h2 className="font-semibold text-gray-900">Financial Data</h2>
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-gray-300">Financial Data</h2>
           <dl className="grid grid-cols-2 gap-4">
             <FieldRow label="Revenue" value={company.revenue_gel ? `${company.revenue_gel.toLocaleString()} GEL` : null} />
             <FieldRow label="Total Assets" value={company.total_assets_gel ? `${company.total_assets_gel.toLocaleString()} GEL` : null} />
-            <FieldRow label="Profit" value={company.profit_gel ? `${company.profit_gel.toLocaleString()} GEL` : null} />
-            <FieldRow label="Financial Year" value={company.financial_year} />
+            <FieldRow label="Revenue Type" value={company.revenue_type} />
+            <FieldRow label="Source" value={company.source} />
           </dl>
         </div>
 
-        <div className="bg-white rounded-lg border p-5 space-y-4">
-          <h2 className="font-semibold text-gray-900">Notes</h2>
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-gray-300">Notes</h2>
           <textarea
-            className="w-full border rounded-lg p-3 text-sm h-32 resize-none"
+            className="w-full resize-none rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none"
+            rows={5}
             value={company.notes || ''}
             onChange={e => setCompany({ ...company, notes: e.target.value })}
             onBlur={e => updateField('notes', e.target.value)}
-            placeholder="Add notes about this company..."
+            placeholder="Add notes about this company…"
           />
         </div>
       </div>
 
-      <div className="mt-6 flex gap-3">
+      <div className="flex gap-3">
         <button
           onClick={enrichCompany}
-          className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm"
+          disabled={saving}
+          className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-600 disabled:opacity-60"
         >
-          Enrich Company
+          Re-enrich
         </button>
       </div>
     </div>

@@ -56,42 +56,68 @@ def social_active(company: Company) -> bool:
     return source == "reportal_public_profile"
 
 
+def get_revenue_rank(company: Company) -> int:
+    """
+    Returns a sort rank for leads. Lower = better.
+    Prioritizes: revenue category (I > II > III > IV > unknown) + has phone.
+    """
+    category = get_category(company)
+    has_phone = bool(company.phone and company.phone.strip())
+
+    if category in ("I", "II") and has_phone:
+        return 1
+    elif category in ("I", "II"):
+        return 2
+    elif category == "III" and has_phone:
+        return 3
+    elif category == "III":
+        return 4
+    elif category == "IV" and has_phone:
+        return 5
+    elif category == "IV":
+        return 6
+    elif has_phone:
+        return 7
+    else:
+        return 8
+
+
 def compute_score(company: Company, contact_badge: str) -> Tuple[int, str, str]:
+    """
+    Kept for backward compatibility. Returns (score, revenue_type, offer_lane).
+    offer_lane is always 'landing_page' — set manually after first contact.
+    """
     revenue, revenue_type = resolve_revenue(company)
 
     if company.website_status == "found":
         return 0, revenue_type, "landing_page"
 
-    score = 100
-
-    if social_active(company):
-        score += 30
-
+    # Score based on revenue signal only
+    score = 50
     if revenue is not None:
         if revenue_type == "exact":
             if revenue >= 500_000:
-                score += 40
+                score = 100
             elif revenue >= 100_000:
-                score += 25
+                score = 80
             else:
-                score += 10
+                score = 60
         elif revenue_type == "estimated":
             category = get_category(company)
             if category in {"I", "II"}:
-                score += 25
+                score = 90
             elif category == "III":
-                score += 15
+                score = 70
             elif category == "IV":
-                score += 5
+                score = 55
+
+    if bool(company.phone and company.phone.strip()):
+        score += 10
 
     if contact_badge == "contacted_recently":
-        score -= 40
+        score = max(score - 30, 0)
 
-    # Revenue-aware lane: without a revenue signal, default to landing page.
-    # This keeps "full website" focused on leads with at least estimated size.
-    has_revenue_signal = revenue_type in {"exact", "estimated"}
-    offer_lane = "full_website" if score >= 120 and has_revenue_signal else "landing_page"
-    return max(score, 0), revenue_type, offer_lane
+    return score, revenue_type, "landing_page"
 
 
 def apply_scoring_to_company(company: Company, contact_badge: str) -> Dict[str, Any]:

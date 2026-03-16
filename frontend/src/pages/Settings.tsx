@@ -2,22 +2,38 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { getErrorMessage } from '../lib/errors'
 
-const fields = [
-  { section: 'Email (SMTP)', items: [
-    { key: 'SMTP_HOST', label: 'SMTP Host', placeholder: 'smtp.gmail.com' },
-    { key: 'SMTP_PORT', label: 'SMTP Port', placeholder: '587' },
-    { key: 'SMTP_USER', label: 'SMTP User', placeholder: 'your@email.com' },
-    { key: 'SMTP_PASSWORD', label: 'SMTP Password', placeholder: '****', type: 'password' },
-  ]},
-  { section: 'WhatsApp (Twilio)', items: [
-    { key: 'TWILIO_ACCOUNT_SID', label: 'Account SID', placeholder: 'ACxxxxxxxx' },
-    { key: 'TWILIO_AUTH_TOKEN', label: 'Auth Token', placeholder: '****', type: 'password' },
-    { key: 'TWILIO_WHATSAPP_NUMBER', label: 'WhatsApp Number', placeholder: '+14155238886' },
-  ]},
-  { section: 'WhatsApp (Meta)', items: [
-    { key: 'META_WHATSAPP_TOKEN', label: 'Access Token', placeholder: '****', type: 'password' },
-    { key: 'META_WHATSAPP_PHONE_ID', label: 'Phone Number ID', placeholder: '1234567890' },
-  ]},
+const FIELDS = [
+  {
+    section: 'Email (SMTP)',
+    items: [
+      { key: 'SMTP_HOST', label: 'SMTP Host', placeholder: 'smtp.gmail.com' },
+      { key: 'SMTP_PORT', label: 'SMTP Port', placeholder: '587' },
+      { key: 'SMTP_USER', label: 'SMTP User', placeholder: 'your@gmail.com' },
+      { key: 'SMTP_PASSWORD', label: 'SMTP Password', placeholder: '••••••••', type: 'password' },
+    ],
+  },
+  {
+    section: 'WhatsApp (Twilio)',
+    items: [
+      { key: 'TWILIO_ACCOUNT_SID', label: 'Account SID', placeholder: 'ACxxxxxxxxxxxxxxxx' },
+      { key: 'TWILIO_AUTH_TOKEN', label: 'Auth Token', placeholder: '••••••••', type: 'password' },
+      { key: 'TWILIO_WHATSAPP_NUMBER', label: 'WhatsApp Number', placeholder: '+14155238886' },
+    ],
+  },
+  {
+    section: 'WhatsApp (Meta)',
+    items: [
+      { key: 'META_WHATSAPP_TOKEN', label: 'Access Token', placeholder: '••••••••', type: 'password' },
+      { key: 'META_WHATSAPP_PHONE_ID', label: 'Phone Number ID', placeholder: '1234567890' },
+    ],
+  },
+  {
+    section: 'International Search',
+    hint: 'Optional. Without this key, Overpass (OpenStreetMap) is used — free, no sign-up. Add a Google Places API key to get phone numbers more reliably and sort by business activity.',
+    items: [
+      { key: 'GOOGLE_PLACES_API_KEY', label: 'Google Places API Key', placeholder: 'AIza...', type: 'password' },
+    ],
+  },
 ]
 
 export default function SettingsPage() {
@@ -27,12 +43,7 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.getSettings().then(data => {
-      setValues(data)
-      setError('')
-    }).catch(fetchError => {
-      setError(getErrorMessage(fetchError, 'Failed to load settings'))
-    })
+    api.getSettings().then(setValues).catch(e => setError(getErrorMessage(e, 'Failed to load settings')))
   }, [])
 
   const handleSave = async () => {
@@ -43,29 +54,31 @@ export default function SettingsPage() {
       await api.saveSettings(values)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-    } catch (saveError) {
-      setError(getErrorMessage(saveError, 'Failed to save settings'))
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to save settings'))
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   return (
-    <div className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+    <div className="max-w-2xl space-y-5">
+      <h1 className="text-xl font-bold text-white">Settings</h1>
 
-      {fields.map(({ section, items }) => (
-        <div key={section} className="bg-white rounded-lg border p-5 mb-4">
-          <h2 className="font-semibold text-gray-900 mb-3">{section}</h2>
-          <div className="space-y-3">
+      {FIELDS.map(({ section, hint, items }) => (
+        <div key={section} className="rounded-lg border border-gray-800 bg-gray-900 p-5">
+          <h2 className="mb-1 text-sm font-semibold text-gray-200">{section}</h2>
+          {hint && <p className="mb-3 text-xs text-gray-500">{hint}</p>}
+          <div className="mt-3 space-y-3">
             {items.map(({ key, label, placeholder, type }) => (
               <div key={key}>
-                <label className="text-sm text-gray-600 block mb-1">{label}</label>
+                <label className="mb-1 block text-xs text-gray-400">{label}</label>
                 <input
                   type={type || 'text'}
                   value={values[key] || ''}
                   onChange={e => setValues({ ...values, [key]: e.target.value })}
                   placeholder={placeholder}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none"
                 />
               </div>
             ))}
@@ -73,16 +86,17 @@ export default function SettingsPage() {
         </div>
       ))}
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 text-sm font-medium"
-      >
-        {saving ? 'Saving...' : 'Save Settings'}
-      </button>
-
-      {saved && <p className="mt-3 text-green-600 text-sm">Settings saved successfully!</p>}
-      {error && <p className="mt-3 text-red-500 text-sm">{error}</p>}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save Settings'}
+        </button>
+        {saved && <span className="text-sm text-green-400">Saved</span>}
+        {error && <span className="text-sm text-red-400">{error}</span>}
+      </div>
     </div>
   )
 }

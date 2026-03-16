@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { Users, Globe, Zap, Mail, CheckCircle } from 'lucide-react'
 import type { Stats } from '../lib/types'
 
 export default function Dashboard() {
@@ -12,57 +11,62 @@ export default function Dashboard() {
     api.getStats().then(setStats).catch(() => setError('Failed to load stats'))
   }, [])
 
-  if (error) return <div className="p-8 text-red-500">{error}</div>
+  if (error) return <div className="p-8 text-red-400">{error}</div>
   if (!stats) return <div className="p-8 text-gray-500">Loading...</div>
 
-  const cards = [
-    { label: 'Total Companies', value: stats.total_companies, icon: Users, color: 'text-blue-500' },
-    { label: 'With Website', value: stats.companies_with_website, icon: Globe, color: 'text-green-500' },
-    { label: 'Without Website', value: stats.companies_without_website, icon: Zap, color: 'text-yellow-500' },
-    { label: 'Contacted', value: stats.contacted, icon: Mail, color: 'text-purple-500' },
-    { label: 'Converted', value: stats.converted, icon: CheckCircle, color: 'text-green-600' },
-    { label: 'Financial Data', value: stats.financial_data_available, icon: Zap, color: 'text-indigo-500' },
-  ]
+  const totalLeads = stats.total_registry + stats.total_local
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {cards.map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white rounded-lg border border-gray-200 p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-gray-600">{label}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-              </div>
-              <Icon className={color} size={22} />
-            </div>
-          </div>
-        ))}
+    <div className="space-y-6">
+      <h1 className="text-xl font-bold text-white">Dashboard</h1>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile label="Total leads" value={totalLeads} accent="text-white" />
+        <Tile label="With phone" value={stats.leads_with_phone} accent="text-green-400" />
+        <Tile label="With email" value={stats.leads_with_email} accent="text-blue-400" />
+        <Tile label="Converted" value={stats.converted} accent="text-emerald-400" />
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-5 mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">Quick Actions</h2>
-        <div className="flex gap-3 flex-wrap">
-          <Link to="/import" className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium">Import Companies</Link>
-          <Link to="/companies" className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm font-medium">View Companies</Link>
-          <Link to="/leads" className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm font-medium">View Leads</Link>
-          <Link to="/enrichment" className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm font-medium">Enrich Data</Link>
-        </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <Tile label="Outreach sent" value={stats.outreach_sent_count} accent="text-indigo-400" />
+        <Tile label="Replies" value={stats.outreach_replied_count} accent="text-yellow-400" />
+        <Tile label="Local businesses" value={stats.total_local} accent="text-purple-400" />
       </div>
 
-      {stats.total_companies === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-3">Getting Started</h3>
-          <ol className="space-y-2 text-blue-800 text-sm">
-            <li><strong>1.</strong> Go to <Link to="/import" className="underline">Import Data</Link> and upload OpenSanctions Georgian registry</li>
-            <li><strong>2.</strong> View imported companies in the <Link to="/companies" className="underline">Companies</Link> tab</li>
-            <li><strong>3.</strong> Go to <Link to="/enrichment" className="underline">Enrichment</Link> to find websites and financial data</li>
-            <li><strong>4.</strong> Check <Link to="/leads" className="underline">Leads</Link> for companies without websites</li>
-            <li><strong>5.</strong> Configure email/WhatsApp in <Link to="/settings" className="underline">Settings</Link> and launch campaigns</li>
+      <div className="flex gap-2">
+        <Link to="/find" className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
+          Find Leads
+        </Link>
+        <Link to="/leads" className="rounded-lg bg-gray-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-600">
+          My Leads
+        </Link>
+        <Link to="/campaigns" className="rounded-lg bg-gray-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-600">
+          Campaigns
+        </Link>
+      </div>
+
+      {totalLeads === 0 && (
+        <div className="rounded-lg border border-blue-800 bg-blue-900/20 px-5 py-4">
+          <h3 className="mb-2 text-sm font-semibold text-blue-300">Getting started</h3>
+          <ol className="space-y-1.5 text-sm text-blue-200">
+            <li>1. <Link to="/find" className="underline">Find Leads</Link> — search any city + category, or sweep preset cities in bulk</li>
+            <li>2. <Link to="/leads" className="underline">My Leads</Link> — filter by "has phone", see category badges, pick who to call</li>
+            <li>3. <Link to="/campaigns" className="underline">Campaigns</Link> — send email or WhatsApp outreach in bulk</li>
           </ol>
         </div>
       )}
+    </div>
+  )
+}
+
+function Tile({ label, value, accent, sub }: { label: string; value: string | number; accent: string; sub?: string }) {
+  return (
+    <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className={`mt-1 text-2xl font-bold ${accent}`}>
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </p>
+      {sub && <p className="mt-0.5 text-xs text-gray-600">{sub}</p>}
     </div>
   )
 }

@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: georgian-leads-backend-prod
+    container_name: canvass-backend-prod
     restart: always
     ports:
       - "8000:8000"
@@ -25,9 +25,9 @@ services:
       - META_WHATSAPP_PHONE_ID=${META_WHATSAPP_PHONE_ID}
     volumes:
       - ./backend/data:/app/data
-      - backend-logs:/var/log/georgian-leads
+      - backend-logs:/var/log/canvass
     networks:
-      - georgian-leads-network
+      - canvass-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -44,7 +44,7 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
-    container_name: georgian-leads-frontend-prod
+    container_name: canvass-frontend-prod
     restart: always
     ports:
       - "3000:3000"
@@ -54,7 +54,7 @@ services:
       backend:
         condition: service_healthy
     networks:
-      - georgian-leads-network
+      - canvass-network
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 30s
@@ -68,7 +68,7 @@ services:
         max-file: "3"
 
 networks:
-  georgian-leads-network:
+  canvass-network:
     driver: bridge
 
 volumes:

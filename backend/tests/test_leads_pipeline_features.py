@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.models import Company, Outreach, PipelineRun
+from app.models import Company, Outreach
 from app.services.enrichment import enrich_company
 from app.services.lead_scoring import compute_score
 
@@ -94,22 +94,6 @@ class LeadsAndPipelineTests(unittest.TestCase):
         finally:
             self._cleanup_company(company_recent)
             self._cleanup_company(company_tried)
-
-    def test_pipeline_start_endpoint_contract(self):
-        fake_run = PipelineRun(
-            id=9999,
-            status="queued",
-            progress_pct=0,
-            current_step="Queued",
-            counters_json={},
-            created_at=datetime.utcnow(),
-        )
-        with patch("app.routers.pipeline.start_pipeline_run", return_value=fake_run):
-            resp = self.client.post("/api/pipeline/runs", json={"enrich_limit": 50})
-            self.assertEqual(resp.status_code, 200)
-            payload = resp.json()
-            self.assertEqual(payload["id"], 9999)
-            self.assertEqual(payload["status"], "queued")
 
     def test_score_formula_exact_and_estimated(self):
         exact_company = Company(

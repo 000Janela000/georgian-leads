@@ -30,6 +30,8 @@ class CompanyUpdate(BaseModel):
     facebook_url: Optional[str] = None
     instagram_url: Optional[str] = None
     linkedin_url: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
     lead_status: Optional[str] = None
     priority: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -38,12 +40,18 @@ class CompanyUpdate(BaseModel):
 
 class CompanyResponse(CompanyBase):
     id: int
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    country: Optional[str] = "GE"
+    source: Optional[str] = "registry"
+    category: Optional[str] = None
     website_status: str
     facebook_url: Optional[str]
     instagram_url: Optional[str]
     linkedin_url: Optional[str]
     revenue_gel: Optional[float]
     total_assets_gel: Optional[float]
+    financial_data_json: Optional[Dict[str, Any]] = None
     lead_status: str
     priority: str
     lead_score: Optional[int] = 0
@@ -118,12 +126,15 @@ class TemplateResponse(TemplateBase):
 
 # ========== Statistics Schema ==========
 class StatsResponse(BaseModel):
-    total_companies: int
-    companies_with_website: int
-    companies_without_website: int
-    contacted: int
+    total_registry: int
+    registry_no_website: int
+    leads_with_phone: int
+    leads_with_email: int
+    registry_enriched: int
+    total_local: int
+    outreach_sent_count: int
+    outreach_replied_count: int
     converted: int
-    financial_data_available: int
 
 
 class LeadResponse(CompanyResponse):
@@ -133,18 +144,3 @@ class LeadResponse(CompanyResponse):
     revenue_type: str = "unknown"  # exact, estimated, unknown
     offer_lane: str = "landing_page"  # landing_page, full_website
     source_meta: Dict[str, Any] = Field(default_factory=dict)
-
-
-class PipelineRunResponse(BaseModel):
-    id: int
-    status: str
-    progress_pct: int
-    current_step: Optional[str] = None
-    counters_json: Optional[Dict[str, Any]] = None
-    error_text: Optional[str] = None
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True

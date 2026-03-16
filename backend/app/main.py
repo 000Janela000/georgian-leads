@@ -10,19 +10,18 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, SessionLocal
-from app.routers import companies, outreach, templates, stats, import_data, settings, pipeline
+from app.routers import companies, outreach, templates, stats, settings, find
 from app.services.templates import seed_default_templates
-from app.services.pipeline_runner import mark_stale_pipeline_runs
 
 load_dotenv()
 
 app = FastAPI(
-    title="Georgian Leads API",
-    description="B2B outreach platform for Georgian companies",
+    title="Canvass API",
+    description="Find local businesses without websites and send outreach",
     version="0.1.0"
 )
 
-# Add CORS middleware
+# CORS — local dev tool, allow all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,12 +35,6 @@ init_db()
 # Seed default templates on startup
 @app.on_event("startup")
 def startup_event():
-    stale_count = mark_stale_pipeline_runs()
-    if stale_count:
-        logging.getLogger(__name__).warning(
-            "Marked %s stale pipeline run(s) as interrupted after restart",
-            stale_count,
-        )
     db = SessionLocal()
     try:
         seed_default_templates(db)
@@ -53,15 +46,14 @@ app.include_router(companies.router, prefix="/api/companies", tags=["companies"]
 app.include_router(outreach.router, prefix="/api/outreach", tags=["outreach"])
 app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
-app.include_router(import_data.router, prefix="/api/import", tags=["import"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
-app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(find.router, prefix="/api/find", tags=["find"])
 
 
 @app.get("/")
 def read_root():
     return {
-        "message": "Georgian Leads API",
+        "message": "Canvass API",
         "version": "0.1.0",
         "docs": "/docs"
     }

@@ -12,18 +12,12 @@ export default function Campaigns() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.listTemplates().then(data => {
-      setTemplates(data)
-      setError('')
-    }).catch(fetchError => {
-      setError(getErrorMessage(fetchError, 'Failed to load templates'))
-    })
+    api.listTemplates().then(setTemplates).catch(e => setError(getErrorMessage(e, 'Failed to load templates')))
   }, [])
 
   const filteredTemplates = templates.filter(t =>
     channel.startsWith('whatsapp') ? t.channel === 'whatsapp' : t.channel === 'email'
   )
-
   const selectedTemplate = templates.find(t => t.id === Number(templateId))
 
   const handleSend = async () => {
@@ -34,73 +28,83 @@ export default function Campaigns() {
     try {
       const res = await api.sendBulk({ channel, template_id: Number(templateId), get_all_leads: true })
       setResult(res)
-    } catch (sendError) {
-      setError(getErrorMessage(sendError, 'Failed to send campaign'))
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to send campaign'))
+    } finally {
+      setSending(false)
     }
-    setSending(false)
   }
 
   return (
-    <div className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Campaigns</h1>
+    <div className="max-w-2xl space-y-5">
+      <div>
+        <h1 className="text-xl font-bold text-white">Campaigns</h1>
+        <p className="mt-0.5 text-sm text-gray-400">
+          Batch send email or WhatsApp to your saved leads.
+        </p>
+      </div>
 
-      <div className="bg-white rounded-lg border p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-4">New Campaign</h2>
-
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm text-gray-600 block mb-1">Channel</label>
-            <select value={channel} onChange={e => { setChannel(e.target.value); setTemplateId('') }} className="px-3 py-2 border rounded-lg text-sm w-full">
-              <option value="email">Email</option>
-              <option value="whatsapp_twilio">WhatsApp (Twilio)</option>
-              <option value="whatsapp_meta">WhatsApp (Meta)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm text-gray-600 block mb-1">Template</label>
-            <select value={templateId} onChange={e => setTemplateId(e.target.value)} className="px-3 py-2 border rounded-lg text-sm w-full">
-              <option value="">Select a template...</option>
-              {filteredTemplates.map(t => (
-                <option key={t.id} value={t.id}>{t.name} ({t.language})</option>
-              ))}
-            </select>
-          </div>
-
-          {selectedTemplate && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">Preview</p>
-              {selectedTemplate.subject && <p className="text-sm font-medium mb-1">{selectedTemplate.subject}</p>}
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedTemplate.body}</p>
-            </div>
-          )}
-
-          <button
-            onClick={handleSend}
-            disabled={!templateId || sending}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 text-sm font-medium"
+      <div className="rounded-lg border border-gray-800 bg-gray-900 p-5 space-y-4">
+        <div>
+          <label className="mb-1 block text-sm text-gray-400">Channel</label>
+          <select
+            value={channel}
+            onChange={e => { setChannel(e.target.value); setTemplateId('') }}
+            className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:outline-none"
           >
-            {sending ? 'Sending...' : 'Send to All Leads'}
-          </button>
+            <option value="email">Email</option>
+            <option value="whatsapp_twilio">WhatsApp (Twilio)</option>
+            <option value="whatsapp_meta">WhatsApp (Meta)</option>
+          </select>
         </div>
 
-        {error && <p className="mt-4 text-red-500 text-sm">{error}</p>}
+        <div>
+          <label className="mb-1 block text-sm text-gray-400">Template</label>
+          <select
+            value={templateId}
+            onChange={e => setTemplateId(e.target.value)}
+            className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:outline-none"
+          >
+            <option value="">Select a template…</option>
+            {filteredTemplates.map(t => (
+              <option key={t.id} value={t.id}>{t.name} ({t.language})</option>
+            ))}
+          </select>
+        </div>
+
+        {selectedTemplate && (
+          <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-4">
+            <p className="mb-1 text-xs text-gray-500">Preview</p>
+            {selectedTemplate.subject && (
+              <p className="mb-1 text-sm font-medium text-gray-200">{selectedTemplate.subject}</p>
+            )}
+            <p className="whitespace-pre-wrap text-sm text-gray-300">{selectedTemplate.body}</p>
+          </div>
+        )}
+
+        <button
+          onClick={handleSend}
+          disabled={!templateId || sending}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {sending ? 'Sending…' : 'Send to All Saved Leads'}
+        </button>
+
+        {error && <p className="text-sm text-red-400">{error}</p>}
+
         {result && (
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-sm">
-            <p className="font-medium text-green-800">Campaign Sent</p>
-            <p className="text-green-700">
-              Sent: {result.total_sent || 0} | Failed: {result.total_failed || 0}
-              {result.skipped_dedup > 0 && ` | Skipped (already contacted): ${result.skipped_dedup}`}
-              {(result.skipped_missing_contact || 0) > 0 && ` | Skipped (missing contacts): ${result.skipped_missing_contact}`}
+          <div className="rounded-lg border border-green-700 bg-green-900/30 p-4 text-sm">
+            <p className="font-medium text-green-300">Campaign sent</p>
+            <p className="mt-1 text-green-400">
+              Sent: {result.total_sent} · Failed: {result.total_failed}
+              {result.skipped_dedup > 0 && ` · Skipped (already contacted): ${result.skipped_dedup}`}
             </p>
-            {result.message && <p className="text-green-600 mt-1">{result.message}</p>}
           </div>
         )}
       </div>
 
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-5">
-        <h3 className="font-medium text-yellow-900 mb-2">Important</h3>
-        <p className="text-sm text-yellow-800">Make sure you've configured your email/WhatsApp credentials in Settings before sending campaigns.</p>
+      <div className="rounded-lg border border-yellow-800 bg-yellow-900/20 px-4 py-3 text-sm text-yellow-300">
+        Make sure SMTP or WhatsApp credentials are configured in <strong>Settings</strong> before sending.
       </div>
     </div>
   )

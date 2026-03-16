@@ -69,10 +69,29 @@
       "Bash(python -c \"import json,sys,os; os.environ[''''PYTHONIOENCODING'''']=''''utf-8''''; r=json.load\\(sys.stdin\\); print\\(''''Status:'''', r[''''status'''']\\); print\\(''''Step:'''', r[''''current_step'''']\\); print\\(''''Progress:'''', r[''''progress_pct'''']\\); print\\(''''Counters:'''', json.dumps\\(r[''''counters_json''''], indent=2\\)\\)\")",
       "Bash(curl -s \"https://www.bia.ge/\")",
       "Bash(curl -s \"https://napr.gov.ge/ka/service/registers/business-registry\" -L)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Read(//c/Users/user/.claude/projects/**)",
+      "WebFetch(domain:developers.google.com)",
+      "Bash(python3 -m py_compile backend/app/services/pipeline_runner.py)",
+      "Bash(curl -s http://localhost:8123/health)",
+      "Bash(curl -s http://localhost:8123/api/pipeline/runs/latest)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{time_total}\" http://localhost:8123/health)",
+      "Bash(curl -sv http://localhost:8123/api/pipeline/runs/latest)",
+      "Bash(curl -sv -X OPTIONS http://localhost:8123/api/pipeline/runs/latest -H \"Origin: http://localhost:8080\" -H \"Access-Control-Request-Method: GET\")",
+      "Bash(curl -sv -X OPTIONS http://localhost:8123/api/pipeline/runs -H \"Origin: http://localhost:8080\" -H \"Access-Control-Request-Method: POST\")",
+      "Bash(curl -sv -X OPTIONS \"http://localhost:8123/api/pipeline/runs/latest\" -H \"Origin: http://localhost:8080\" -H \"Access-Control-Request-Method: GET\" -H \"Access-Control-Request-Headers: content-type\")",
+      "Bash(curl -s \"http://localhost:8123/api/pipeline/runs/latest\" -H \"Origin: http://localhost:8080\" -v)",
+      "Bash(curl -s http://localhost:8123/api/pipeline/runs/latest -H 'Origin: http://localhost:8080' -D -)",
+      "Read(//c/Users/user/.claude/plans/**)",
+      "Bash(xargs wc:*)",
+      "Bash(find /c/Users/user/Desktop/additional-projects/georgian-leads/backend/app -type f -name \"*.py\" -exec basename {})",
+      "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(gh repo:*)",
+      "Bash(python -c \"from app.main import app; from app.routers.stats import router; from app.routers.companies import router; print\\(''OK''\\)\")"
     ],
     "additionalDirectories": [
-      "c:\\Users\\user\\Desktop\\additional-projects\\ebay-arbitrage"
+      "c:\\Users\\user\\Desktop\\additional-projects\\ebay-arbitrage",
+      "c:\\Users\\user\\.claude\\plans"
     ]
   }
 }

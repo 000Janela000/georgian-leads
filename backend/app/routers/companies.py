@@ -49,20 +49,39 @@ def list_companies(
 def get_leads_without_website(
     skip: int = Query(0),
     limit: int = Query(50),
-    social_active_only: bool = Query(False),
+    has_phone: bool = Query(None),
+    has_email: bool = Query(None),
     revenue_type: str = Query(None),  # exact, estimated, unknown
     contact_badge: str = Query(None),  # never_contacted, tried, contacted_recently
     include_contacted_recently: bool = Query(False),
     days: int = Query(30, ge=1, le=365),
+    source: str = Query("all"),  # registry, local, all
     db: Session = Depends(get_db)
 ):
-    """Get active no-website leads with score, offer lane, and outreach badge."""
-    query = db.query(Company).filter(
-        and_(
-            Company.website_status == "not_found",
-            Company.status == "active"
-        )
-    )
+    """Get active no-website leads sorted by revenue rank + phone availability."""
+    from app.services.lead_scoring import get_revenue_rank
+
+    base_filters = [
+        Company.website_status == "not_found",
+        Company.status == "active",
+    ]
+    if source == "registry":
+        base_filters.append(Company.source == "registry")
+    elif source == "local":
+        base_filters.append(Company.source == "local")
+    # source == "all": no source filter
+
+    query = db.query(Company).filter(and_(*base_filters))
+
+    if has_phone is True:
+        query = query.filter(Company.phone.isnot(None), Company.phone != "")
+    elif has_phone is False:
+        query = query.filter((Company.phone.is_(None)) | (Company.phone == ""))
+
+    if has_email is True:
+        query = query.filter(Company.email.isnot(None), Company.email != "")
+    elif has_email is False:
+        query = query.filter((Company.email.is_(None)) | (Company.email == ""))
 
     companies = query.all()
     company_ids = [c.id for c in companies]
@@ -74,10 +93,6 @@ def get_leads_without_website(
         if not include_contacted_recently and badge == "contacted_recently":
             continue
         if contact_badge and badge != contact_badge:
-            continue
-
-        is_social_active = social_active(company)
-        if social_active_only and not is_social_active:
             continue
 
         score, computed_revenue_type, offer_lane = compute_score(company, badge)
@@ -95,6 +110,10 @@ def get_leads_without_website(
                 "status": company.status,
                 "address": company.address,
                 "director_name": company.director_name,
+                "phone": company.phone,
+                "email": company.email,
+                "country": company.country,
+                "source": company.source,
                 "website_url": company.website_url,
                 "website_status": company.website_status,
                 "facebook_url": company.facebook_url,
@@ -102,6 +121,7 @@ def get_leads_without_website(
                 "linkedin_url": company.linkedin_url,
                 "revenue_gel": company.revenue_gel,
                 "total_assets_gel": company.total_assets_gel,
+                "financial_data_json": company.financial_data_json,
                 "lead_status": company.lead_status,
                 "priority": company.priority,
                 "lead_score": score,
@@ -111,20 +131,18 @@ def get_leads_without_website(
                 "last_enriched_at": company.last_enriched_at,
                 "created_at": company.created_at,
                 "updated_at": company.updated_at,
-                "social_active": is_social_active,
+                "social_active": social_active(company),
                 "contact_badge": badge,
                 "score": score,
                 "source_meta": get_source_meta(company),
+                "_rank": get_revenue_rank(company),
             }
         )
 
-    leads.sort(
-        key=lambda item: (
-            -item["score"],
-            -(item["revenue_gel"] or 0),
-            item["id"],
-        )
-    )
+    # Sort: revenue rank (lower = better), then has_phone desc, then id
+    leads.sort(key=lambda item: (item["_rank"], item["id"]))
+    for lead in leads:
+        del lead["_rank"]
     return leads[skip: skip + limit]
 
 

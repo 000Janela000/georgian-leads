@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, JSON, Boolean
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, JSON, Boolean, Index
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -18,6 +18,15 @@ class Company(Base):
     address = Column(String(500), nullable=True)
     director_name = Column(String(255), nullable=True)
     shareholders_json = Column(JSON, nullable=True)
+
+    # Contact info — first-class fields, populated from reportal.ge / OSM
+    phone = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
+
+    # Source tracking
+    country = Column(String(50), default="GE")  # ISO country code
+    source = Column(String(50), default="registry")  # registry, local
+    category = Column(String(100), nullable=True)  # business type: restaurant, salon, clinic, etc.
 
     website_url = Column(String(500), nullable=True)
     website_status = Column(String(50), default="unknown")  # unknown, found, not_found
@@ -46,6 +55,17 @@ class Company(Base):
     # Relationships
     outreaches = relationship("Outreach", back_populates="company", cascade="all, delete-orphan")
 
+    __table_args__ = (
+        Index("idx_company_lead_status", "lead_status"),
+        Index("idx_company_website_status", "website_status"),
+        Index("idx_company_lead_score", "lead_score"),
+        Index("idx_company_revenue_type", "revenue_type"),
+        Index("idx_company_offer_lane", "offer_lane"),
+        Index("idx_company_last_enriched", "last_enriched_at"),
+        Index("idx_company_source", "source"),
+        Index("idx_company_country", "country"),
+    )
+
 
 class Outreach(Base):
     __tablename__ = "outreach"
@@ -67,6 +87,12 @@ class Outreach(Base):
     # Relationships
     company = relationship("Company", back_populates="outreaches")
     template = relationship("Template")
+
+    __table_args__ = (
+        Index("idx_outreach_status", "status"),
+        Index("idx_outreach_created_at", "created_at"),
+        Index("idx_outreach_company_id", "company_id"),
+    )
 
 
 class Template(Base):
@@ -92,15 +118,3 @@ class Setting(Base):
     value = Column(Text, nullable=True)
 
 
-class PipelineRun(Base):
-    __tablename__ = "pipeline_runs"
-
-    id = Column(Integer, primary_key=True, index=True)
-    status = Column(String(20), default="queued")  # queued, running, done, error
-    progress_pct = Column(Integer, default=0)
-    current_step = Column(String(255), nullable=True)
-    counters_json = Column(JSON, default=dict)
-    error_text = Column(Text, nullable=True)
-    started_at = Column(DateTime, nullable=True)
-    finished_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
