@@ -28,6 +28,7 @@ export default function LeadDetail() {
   const [enriching, setEnriching] = useState(false)
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -41,15 +42,23 @@ export default function LeadDetail() {
   const TierIcon = tc.icon
 
   const handleStatusChange = async (status: string) => {
-    const updated = await api.updateLeadStatus(lead.id, status)
-    setLead(updated)
+    try {
+      setError('')
+      const updated = await api.updateLeadStatus(lead.id, status)
+      setLead(updated)
+    } catch (e: any) {
+      setError(e.message)
+    }
   }
 
   const handleEnrich = async () => {
     setEnriching(true)
+    setError('')
     try {
       const updated = await api.enrichLead(lead.id)
       setLead(updated)
+    } catch (e: any) {
+      setError(e.message)
     } finally {
       setEnriching(false)
     }
@@ -57,16 +66,25 @@ export default function LeadDetail() {
 
   const handleDelete = async () => {
     if (!confirm('Delete this lead?')) return
-    await api.deleteLead(lead.id)
-    navigate('/leads')
+    try {
+      await api.deleteLead(lead.id)
+      navigate('/leads')
+    } catch (e: any) {
+      setError(e.message)
+    }
   }
 
   const handleNotesBlur = async () => {
     if (notes === (lead.notes || '')) return
     setSaving(true)
-    const updated = await api.updateLead(lead.id, { notes })
-    setLead(updated)
-    setSaving(false)
+    try {
+      const updated = await api.updateLead(lead.id, { notes })
+      setLead(updated)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -74,6 +92,8 @@ export default function LeadDetail() {
       <button onClick={() => navigate('/leads')} className="mb-4 flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
         <ArrowLeft size={14} /> Back to Leads
       </button>
+
+      {error && <div className="mb-4 rounded-lg bg-red-950 p-3 text-sm text-red-400">{error}</div>}
 
       {/* Header */}
       <div className="mb-6 flex items-start justify-between">

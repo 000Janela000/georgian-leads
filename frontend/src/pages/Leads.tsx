@@ -49,12 +49,14 @@ export default function Leads() {
 
   useEffect(() => {
     setLoading(true)
+    let stale = false
     const params: any = { sort_by: 'google_review_count', sort_order: 'desc', limit: 200 }
     if (city) params.city = city
     if (tier) params.reachability_tier = tier
     if (status) params.lead_status = status
     if (search) params.search = search
-    api.listLeads(params).then(setLeads).finally(() => setLoading(false))
+    api.listLeads(params).then((data) => { if (!stale) setLeads(data) }).finally(() => { if (!stale) setLoading(false) })
+    return () => { stale = true }
   }, [city, tier, status, search])
 
   const handleStatusChange = async (leadId: number, newStatus: string) => {

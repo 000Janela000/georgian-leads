@@ -41,7 +41,3 @@ services:
 networks:
   leadscout-network:
     driver: bridge
-
-volumes:
-  backend-data:
-    driver: local

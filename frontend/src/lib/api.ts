@@ -51,6 +51,7 @@ export const api = {
     fetchAPI(`/api/leads/${id}/enrich`, { method: 'POST' }),
   enrichBatch: (ids?: number[]) =>
     fetchAPI('/api/leads/enrich-batch', { method: 'POST', body: JSON.stringify({ lead_ids: ids || [] }) }),
+  getEnrichStatus: () => fetchAPI('/api/leads/enrich-batch/status'),
 
   // Discover
   getCities: () => fetchAPI('/api/discover/cities'),
