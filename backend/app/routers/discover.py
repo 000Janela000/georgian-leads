@@ -105,7 +105,11 @@ def save_leads(data: SaveLeadsRequest, db: Session = Depends(get_db)):
         db.add(lead)
         saved += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Failed to save leads. Some may already exist.")
     return {"saved": saved, "skipped_existing": skipped_existing, "skipped_has_website": skipped_has_website}
 
 
