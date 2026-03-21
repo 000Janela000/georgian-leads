@@ -1,4 +1,4 @@
-"""Google Places API (v1) scraper — optional, used when GOOGLE_PLACES_API_KEY is set."""
+"""Google Places API (v1) scraper for discovering businesses."""
 import logging
 import httpx
 
@@ -12,12 +12,10 @@ FIELD_MASK = ",".join([
     "places.formattedAddress",
     "places.nationalPhoneNumber",
     "places.websiteUri",
+    "places.rating",
     "places.userRatingCount",
-    "places.location",
-    "places.regularOpeningHours",
 ])
 
-# Maps our category keys to natural language query terms
 CATEGORY_QUERIES: dict[str, str] = {
     "restaurant":   "restaurants and cafes",
     "hotel":        "hotels and guest houses",
@@ -30,10 +28,13 @@ CATEGORY_QUERIES: dict[str, str] = {
     "lawyer":       "law offices",
 }
 
+CITIES = ["Tbilisi", "Batumi", "Kutaisi", "Rustavi", "Gori"]
 
-def search_google_places(api_key: str, category: str, city: str, limit: int = 20) -> list[dict]:
+
+def search_google_places(api_key: str, category: str, city: str, limit: int = 60) -> list[dict]:
+    """Search Google Places for businesses in a city. Returns ALL results (caller filters by website)."""
     query_term = CATEGORY_QUERIES.get(category, category)
-    text_query = f"{query_term} in {city}"
+    text_query = f"{query_term} in {city}, Georgia"
 
     results = []
     next_page_token = None
@@ -59,36 +60,27 @@ def search_google_places(api_key: str, category: str, city: str, limit: int = 20
         data = resp.json()
 
         for place in data.get("places", []):
-            # Skip if already has a website
-            if place.get("websiteUri"):
-                continue
-
             name = place.get("displayName", {}).get("text")
             if not name:
                 continue
 
-            loc = place.get("location", {})
+            website_uri = place.get("websiteUri")
             results.append({
-                "source_id":     f"gp_{place['id']}",
-                "name_en":       name,
-                "phone":         place.get("nationalPhoneNumber"),
-                "email":         None,
-                "address":       place.get("formattedAddress"),
-                "country":       "",
-                "city":          city,
-                "category":      category,
-                "lat":           loc.get("latitude"),
-                "lon":           loc.get("longitude"),
-                "facebook_url":  None,
-                "instagram_url": None,
-                "user_rating_count": place.get("userRatingCount", 0),
-                "source":        "google_places",
+                "google_place_id": place["id"],
+                "name": name,
+                "phone": place.get("nationalPhoneNumber"),
+                "address": place.get("formattedAddress"),
+                "city": city,
+                "category": category,
+                "google_rating": place.get("rating"),
+                "google_review_count": place.get("userRatingCount", 0),
+                "website_url": website_uri,
+                "has_website": bool(website_uri),
             })
 
         next_page_token = data.get("nextPageToken")
         if not next_page_token:
             break
 
-    # Sort by activity signal (more ratings = more active business)
-    results.sort(key=lambda x: x.get("user_rating_count", 0), reverse=True)
+    results.sort(key=lambda x: x.get("google_review_count", 0), reverse=True)
     return results[:limit]

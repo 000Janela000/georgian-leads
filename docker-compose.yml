@@ -3,28 +3,16 @@ version: '3.8'
 services:
   backend:
     build: .
-    container_name: canvass-backend
+    container_name: leadscout-backend
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./data/leads.db
-      - CLEARBIT_API_KEY=${CLEARBIT_API_KEY:-}
-      - GOOGLE_CSE_API_KEY=${GOOGLE_CSE_API_KEY:-}
-      - GOOGLE_CSE_CX=${GOOGLE_CSE_CX:-}
-      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER:-}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
-      - TWILIO_WHATSAPP_NUMBER=${TWILIO_WHATSAPP_NUMBER:-}
-      - META_WHATSAPP_TOKEN=${META_WHATSAPP_TOKEN:-}
-      - META_WHATSAPP_PHONE_ID=${META_WHATSAPP_PHONE_ID:-}
     volumes:
       - ./backend/app:/app/app
       - ./backend/data:/app/data
     networks:
-      - canvass-network
+      - leadscout-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -35,7 +23,7 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
-    container_name: canvass-frontend
+    container_name: leadscout-frontend
     ports:
       - "3000:3000"
     environment:
@@ -43,7 +31,7 @@ services:
     depends_on:
       - backend
     networks:
-      - canvass-network
+      - leadscout-network
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
@@ -51,7 +39,7 @@ services:
       retries: 3
 
 networks:
-  canvass-network:
+  leadscout-network:
     driver: bridge
 
 volumes:

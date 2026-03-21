@@ -1,12 +1,10 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
-import { FileText, LayoutDashboard, Mail, Search, Settings, Users } from 'lucide-react'
+import { LayoutDashboard, Search, Settings, Users } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
-import FindLeads from './pages/FindLeads'
+import Discover from './pages/Discover'
 import Leads from './pages/Leads'
-import Campaigns from './pages/Campaigns'
-import Templates from './pages/Templates'
+import LeadDetail from './pages/LeadDetail'
 import SettingsPage from './pages/Settings'
-import CompanyDetail from './pages/CompanyDetail'
 
 function SideNavLink({ to, label, icon: Icon, end }: { to: string; label: string; icon: React.ElementType; end?: boolean }) {
   return (
@@ -29,15 +27,13 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-gray-950">
       <aside className="flex w-52 shrink-0 flex-col border-r border-gray-800 bg-gray-900 px-3 py-4">
-        <div className="mb-5 px-1 text-base font-bold tracking-tight text-blue-400">Canvass</div>
+        <div className="mb-5 px-1 text-base font-bold tracking-tight text-blue-400">LeadScout</div>
         <nav className="flex flex-1 flex-col gap-0.5">
           <SideNavLink to="/" label="Dashboard" icon={LayoutDashboard} end />
-          <SideNavLink to="/find" label="Find Leads" icon={Search} />
+          <SideNavLink to="/discover" label="Discover" icon={Search} />
           <SideNavLink to="/leads" label="My Leads" icon={Users} />
-          <SideNavLink to="/campaigns" label="Campaigns" icon={Mail} />
           <div className="flex-1" />
-          <div className="mt-3 border-t border-gray-800 pt-3 flex flex-col gap-0.5">
-            <SideNavLink to="/templates" label="Templates" icon={FileText} />
+          <div className="mt-3 border-t border-gray-800 pt-3">
             <SideNavLink to="/settings" label="Settings" icon={Settings} />
           </div>
         </nav>
@@ -46,12 +42,10 @@ export default function App() {
         <div className="mx-auto max-w-5xl">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/find" element={<FindLeads />} />
+            <Route path="/discover" element={<Discover />} />
             <Route path="/leads" element={<Leads />} />
-            <Route path="/campaigns" element={<Campaigns />} />
-            <Route path="/templates" element={<Templates />} />
+            <Route path="/leads/:id" element={<LeadDetail />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/companies/:id" element={<CompanyDetail />} />
           </Routes>
         </div>
       </main>

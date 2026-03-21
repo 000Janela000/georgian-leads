@@ -1,101 +1,82 @@
 import { useEffect, useState } from 'react'
+import { Save, Loader2, Check } from 'lucide-react'
 import { api } from '../lib/api'
-import { getErrorMessage } from '../lib/errors'
 
 const FIELDS = [
-  {
-    section: 'Email (SMTP)',
-    items: [
-      { key: 'SMTP_HOST', label: 'SMTP Host', placeholder: 'smtp.gmail.com' },
-      { key: 'SMTP_PORT', label: 'SMTP Port', placeholder: '587' },
-      { key: 'SMTP_USER', label: 'SMTP User', placeholder: 'your@gmail.com' },
-      { key: 'SMTP_PASSWORD', label: 'SMTP Password', placeholder: '••••••••', type: 'password' },
-    ],
-  },
-  {
-    section: 'WhatsApp (Twilio)',
-    items: [
-      { key: 'TWILIO_ACCOUNT_SID', label: 'Account SID', placeholder: 'ACxxxxxxxxxxxxxxxx' },
-      { key: 'TWILIO_AUTH_TOKEN', label: 'Auth Token', placeholder: '••••••••', type: 'password' },
-      { key: 'TWILIO_WHATSAPP_NUMBER', label: 'WhatsApp Number', placeholder: '+14155238886' },
-    ],
-  },
-  {
-    section: 'WhatsApp (Meta)',
-    items: [
-      { key: 'META_WHATSAPP_TOKEN', label: 'Access Token', placeholder: '••••••••', type: 'password' },
-      { key: 'META_WHATSAPP_PHONE_ID', label: 'Phone Number ID', placeholder: '1234567890' },
-    ],
-  },
-  {
-    section: 'International Search',
-    hint: 'Optional. Without this key, Overpass (OpenStreetMap) is used — free, no sign-up. Add a Google Places API key to get phone numbers more reliably and sort by business activity.',
-    items: [
-      { key: 'GOOGLE_PLACES_API_KEY', label: 'Google Places API Key', placeholder: 'AIza...', type: 'password' },
-    ],
-  },
+  { key: 'GOOGLE_PLACES_API_KEY', label: 'Google Places API Key (Primary)', section: 'Google Places' },
+  { key: 'GOOGLE_PLACES_API_KEY_2', label: 'Google Places API Key 2', section: 'Google Places' },
+  { key: 'GOOGLE_PLACES_API_KEY_3', label: 'Google Places API Key 3', section: 'Google Places' },
+  { key: 'GOOGLE_CSE_API_KEY', label: 'API Key', section: 'Google Custom Search (for Facebook lookup)' },
+  { key: 'GOOGLE_CSE_CX', label: 'Search Engine ID (CX)', section: 'Google Custom Search (for Facebook lookup)' },
+  { key: 'FACEBOOK_ACCESS_TOKEN', label: 'Access Token (optional)', section: 'Facebook Graph API' },
 ]
 
-export default function SettingsPage() {
+export default function Settings() {
   const [values, setValues] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
 
   useEffect(() => {
-    api.getSettings().then(setValues).catch(e => setError(getErrorMessage(e, 'Failed to load settings')))
+    api.getSettings().then((s) => setValues(s)).finally(() => setLoading(false))
   }, [])
 
   const handleSave = async () => {
     setSaving(true)
     setSaved(false)
-    setError('')
-    try {
-      await api.saveSettings(values)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-    } catch (e) {
-      setError(getErrorMessage(e, 'Failed to save settings'))
-    } finally {
-      setSaving(false)
-    }
+    await api.saveSettings(values)
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
 
+  if (loading) return <div className="text-gray-500">Loading...</div>
+
+  const sections = [...new Set(FIELDS.map((f) => f.section))]
+
   return (
-    <div className="max-w-2xl space-y-5">
-      <h1 className="text-xl font-bold text-white">Settings</h1>
-
-      {FIELDS.map(({ section, hint, items }) => (
-        <div key={section} className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="mb-1 text-sm font-semibold text-gray-200">{section}</h2>
-          {hint && <p className="mb-3 text-xs text-gray-500">{hint}</p>}
-          <div className="mt-3 space-y-3">
-            {items.map(({ key, label, placeholder, type }) => (
-              <div key={key}>
-                <label className="mb-1 block text-xs text-gray-400">{label}</label>
-                <input
-                  type={type || 'text'}
-                  value={values[key] || ''}
-                  onChange={e => setValues({ ...values, [key]: e.target.value })}
-                  placeholder={placeholder}
-                  className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      <div className="flex items-center gap-4">
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-xl font-bold text-white">Settings</h1>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save Settings'}
+          {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : <Save size={14} />}
+          {saved ? 'Saved' : 'Save'}
         </button>
-        {saved && <span className="text-sm text-green-400">Saved</span>}
-        {error && <span className="text-sm text-red-400">{error}</span>}
+      </div>
+
+      <div className="space-y-6">
+        {sections.map((section) => (
+          <div key={section} className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-300">{section}</h2>
+            <div className="space-y-3">
+              {FIELDS.filter((f) => f.section === section).map((field) => (
+                <div key={field.key}>
+                  <label className="mb-1 block text-xs text-gray-500">{field.label}</label>
+                  <input
+                    type={field.key.includes('TOKEN') || field.key.includes('PASSWORD') ? 'password' : 'text'}
+                    value={values[field.key] || ''}
+                    onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+                    placeholder={`Enter ${field.label.toLowerCase()}`}
+                    className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-4">
+        <h2 className="mb-2 text-sm font-semibold text-gray-300">About API Keys</h2>
+        <div className="space-y-1.5 text-xs text-gray-500">
+          <p><strong className="text-gray-400">Google Places:</strong> Free tier gives $200/month credit per billing account. Add up to 3 keys for extended usage.</p>
+          <p><strong className="text-gray-400">Google Custom Search:</strong> Free tier gives 100 queries/day. Used to find Facebook pages for leads.</p>
+          <p><strong className="text-gray-400">Facebook Graph API:</strong> Optional. Provides follower count and last post date. Requires a Facebook App token.</p>
+        </div>
       </div>
     </div>
   )
