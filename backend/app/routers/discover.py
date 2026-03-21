@@ -28,15 +28,6 @@ def _get_api_keys(db: Session) -> list[str]:
     return keys
 
 
-def _get_api_keys_direct() -> list[str]:
-    """Read API keys in background thread (no request context)."""
-    db = SessionLocal()
-    try:
-        return _get_api_keys(db)
-    finally:
-        db.close()
-
-
 @router.get("/cities")
 def get_cities():
     return CITIES
@@ -53,7 +44,7 @@ def search(data: SearchRequest, db: Session = Depends(get_db)):
     if not keys:
         raise HTTPException(400, "No Google Places API key configured. Add one in Settings.")
 
-    key_index = min(data.api_key_index, len(keys) - 1)
+    key_index = max(0, min(data.api_key_index, len(keys) - 1))
     api_key = keys[key_index]
 
     try:
@@ -70,7 +61,7 @@ def search(data: SearchRequest, db: Session = Depends(get_db)):
                 continue
         else:
             logger.error("All API keys failed for search: %s", e)
-            raise HTTPException(502, f"Google Places search failed: {e}")
+            raise HTTPException(502, "Google Places search failed. Check API key configuration.")
 
     return {"results": results, "total": len(results)}
 
@@ -81,13 +72,19 @@ def save_leads(data: SaveLeadsRequest, db: Session = Depends(get_db)):
     skipped_existing = 0
     skipped_has_website = 0
 
+    # Batch duplicate check instead of per-lead query
+    incoming_ids = [ld.google_place_id for ld in data.leads if not ld.has_website]
+    existing_ids = set(
+        row[0] for row in db.query(Lead.google_place_id)
+        .filter(Lead.google_place_id.in_(incoming_ids)).all()
+    ) if incoming_ids else set()
+
     for lead_data in data.leads:
         if lead_data.has_website:
             skipped_has_website += 1
             continue
 
-        existing = db.query(Lead).filter(Lead.google_place_id == lead_data.google_place_id).first()
-        if existing:
+        if lead_data.google_place_id in existing_ids:
             skipped_existing += 1
             continue
 
@@ -116,7 +113,7 @@ def _run_sweep(cities: list[str], categories: list[str]) -> None:
     global _sweep
     db = SessionLocal()
     try:
-        keys = _get_api_keys_direct()
+        keys = _get_api_keys(db)
         if not keys:
             with _sweep_lock:
                 _sweep.update({"status": "error", "error": "No API keys configured"})
@@ -137,10 +134,17 @@ def _run_sweep(cities: list[str], categories: list[str]) -> None:
                 try:
                     results = search_google_places(api_key, cat, city, limit=60)
 
+                    # Batch duplicate check
+                    result_ids = [r["google_place_id"] for r in results if not r["has_website"]]
+                    existing_ids = set(
+                        row[0] for row in db.query(Lead.google_place_id)
+                        .filter(Lead.google_place_id.in_(result_ids)).all()
+                    ) if result_ids else set()
+
                     for r in results:
                         if r["has_website"]:
                             continue
-                        if db.query(Lead).filter(Lead.google_place_id == r["google_place_id"]).first():
+                        if r["google_place_id"] in existing_ids:
                             continue
 
                         tier = compute_tier(None, r.get("phone"), None)
@@ -176,7 +180,7 @@ def _run_sweep(cities: list[str], categories: list[str]) -> None:
     except Exception as e:
         logger.error("Sweep error: %s", e)
         with _sweep_lock:
-            _sweep.update({"status": "error", "error": str(e)})
+            _sweep.update({"status": "error", "error": "Sweep failed. Check server logs."})
     finally:
         db.close()
 

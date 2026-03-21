@@ -1,14 +1,21 @@
 """Lead management routes."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+import threading
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db, SessionLocal
 from app.models import Lead, Setting
-from app.schemas import LeadResponse, LeadUpdate, StatsResponse
+from app.schemas import LeadResponse, LeadUpdate, StatsResponse, EnrichBatchRequest
 from app.services.reachability import compute_tier
 from app.scrapers.facebook_enrichment import enrich_lead_facebook
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Module-level enrichment state (single-user app)
+_enrich: dict = {"status": "idle", "progress": "", "enriched": 0, "failed": 0, "total": 0}
+_enrich_lock = threading.Lock()
 
 
 def _get_settings_dict(db: Session) -> dict:
@@ -62,7 +69,8 @@ def list_leads(
     if lead_status:
         q = q.filter(Lead.lead_status == lead_status)
     if search:
-        q = q.filter(Lead.name.ilike(f"%{search}%"))
+        escaped = search.replace("%", "\\%").replace("_", "\\_")
+        q = q.filter(Lead.name.ilike(f"%{escaped}%", escape="\\"))
 
     sort_col = getattr(Lead, sort_by)
     q = q.order_by(sort_col.desc() if sort_order == "desc" else sort_col.asc())
@@ -148,37 +156,77 @@ def enrich_lead(lead_id: int, db: Session = Depends(get_db)):
     return LeadResponse.model_validate(lead)
 
 
+def _apply_enrichment(lead: Lead, result: dict) -> None:
+    """Apply enrichment result to a lead object."""
+    if result.get("facebook_url") and not lead.facebook_url:
+        lead.facebook_url = result["facebook_url"]
+    if result.get("facebook_followers"):
+        lead.facebook_followers = result["facebook_followers"]
+    if result.get("facebook_last_post_date"):
+        lead.facebook_last_post_date = result["facebook_last_post_date"]
+    if result.get("phone") and not lead.phone:
+        lead.phone = result["phone"]
+    if result.get("email") and not lead.email:
+        lead.email = result["email"]
+    lead.reachability_tier = compute_tier(lead.facebook_url, lead.phone, lead.email)
+
+
+def _run_enrichment(lead_ids: list[int], limit: int) -> None:
+    """Background enrichment task."""
+    global _enrich
+    db = SessionLocal()
+    try:
+        if not lead_ids:
+            leads = db.query(Lead).filter(Lead.facebook_url.is_(None)).limit(limit).all()
+        else:
+            leads = db.query(Lead).filter(Lead.id.in_(lead_ids[:limit])).all()
+
+        settings = _get_settings_dict(db)
+        enriched = 0
+        failed = 0
+        total = len(leads)
+
+        with _enrich_lock:
+            _enrich.update({"total": total})
+
+        for i, lead in enumerate(leads):
+            try:
+                result = enrich_lead_facebook(lead.name, lead.city or "", settings)
+                _apply_enrichment(lead, result)
+                db.commit()
+                enriched += 1
+            except Exception as e:
+                logger.warning("Enrichment failed for lead %s: %s", lead.id, e)
+                db.rollback()
+                failed += 1
+
+            with _enrich_lock:
+                _enrich.update({"progress": f"{i + 1}/{total}", "enriched": enriched, "failed": failed})
+
+        with _enrich_lock:
+            _enrich.update({"status": "done", "progress": "Complete", "enriched": enriched, "failed": failed})
+
+    except Exception as e:
+        logger.error("Enrichment error: %s", e)
+        with _enrich_lock:
+            _enrich.update({"status": "error", "progress": "Failed. Check server logs."})
+    finally:
+        db.close()
+
+
 @router.post("/enrich-batch")
-def enrich_batch(data: dict, db: Session = Depends(get_db)):
-    lead_ids = data.get("lead_ids", [])
-    limit = min(data.get("limit", 50), 100)
+def enrich_batch(data: EnrichBatchRequest, background_tasks: BackgroundTasks):
+    with _enrich_lock:
+        if _enrich.get("status") == "running":
+            raise HTTPException(409, "Enrichment already running")
+        _enrich.update({"status": "running", "progress": "Starting...", "enriched": 0, "failed": 0, "total": 0})
 
-    if not lead_ids:
-        leads = db.query(Lead).filter(Lead.facebook_url.is_(None)).limit(limit).all()
-    else:
-        leads = db.query(Lead).filter(Lead.id.in_(lead_ids[:limit])).all()
+    limit = min(data.limit, 100)
+    background_tasks.add_task(_run_enrichment, data.lead_ids, limit)
+    return {"status": "started"}
 
-    settings = _get_settings_dict(db)
-    enriched = 0
-    failed = 0
 
-    for lead in leads:
-        try:
-            result = enrich_lead_facebook(lead.name, lead.city or "", settings)
-            if result.get("facebook_url") and not lead.facebook_url:
-                lead.facebook_url = result["facebook_url"]
-            if result.get("facebook_followers"):
-                lead.facebook_followers = result["facebook_followers"]
-            if result.get("facebook_last_post_date"):
-                lead.facebook_last_post_date = result["facebook_last_post_date"]
-            if result.get("phone") and not lead.phone:
-                lead.phone = result["phone"]
-            if result.get("email") and not lead.email:
-                lead.email = result["email"]
-            lead.reachability_tier = compute_tier(lead.facebook_url, lead.phone, lead.email)
-            enriched += 1
-        except Exception:
-            failed += 1
-
-    db.commit()
-    return {"enriched": enriched, "failed": failed, "total": len(leads)}
+@router.get("/enrich-batch/status")
+def enrich_status():
+    with _enrich_lock:
+        return dict(_enrich)

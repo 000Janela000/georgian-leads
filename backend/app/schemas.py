@@ -88,6 +88,11 @@ class SweepStatus(BaseModel):
     error: Optional[str] = None
 
 
+class EnrichBatchRequest(BaseModel):
+    lead_ids: List[int] = []
+    limit: int = 50
+
+
 # ========== Stats Schema ==========
 
 class StatsResponse(BaseModel):

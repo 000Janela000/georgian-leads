@@ -61,12 +61,13 @@ def search_google_places(api_key: str, category: str, city: str, limit: int = 60
 
         for place in data.get("places", []):
             name = place.get("displayName", {}).get("text")
-            if not name:
+            place_id = place.get("id")
+            if not name or not place_id:
                 continue
 
             website_uri = place.get("websiteUri")
             results.append({
-                "google_place_id": place["id"],
+                "google_place_id": place_id,
                 "name": name,
                 "phone": place.get("nationalPhoneNumber"),
                 "address": place.get("formattedAddress"),
